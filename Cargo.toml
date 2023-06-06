@@ -1,0 +1,3 @@
+[workspace]
+members = ["clipper_inject"]
+resolver = "2"
