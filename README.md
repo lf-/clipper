@@ -49,8 +49,28 @@ interface to send the keys to.
 > For now maybe let's implement the universal logging stuff and then attack the
 > issue of the daemon later.
 
-Inspired by [openssl-keylog].
+Inspired by [openssl-keylog] and [mirrord-layer] ([blog
+post][mirrord-blogpost]).
 
 [`SSLKEYLOGFILE`]: https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html
 [openssl-keylog]: https://github.com/wpbrown/openssl-keylog
+[mirrord-layer]: https://github.com/metalbear-co/mirrord/tree/main/mirrord/layer
+[mirrord-blogpost]: https://metalbear.co/blog/mirrord-internals-hooking-libc-functions-in-rust-and-fixing-bugs/
+
+### Note on why to use Frida
+
+Unfortunately, libraries consider it impolite behaviour to go override their
+internal calls of functions, and some of them even use measures such
+as `-Bsymbolic` ([see this article][bsymbolic]) that result in internal calls
+not dispatching through the GOT/PLT dynamic linking machinery and thus not
+being possible to override.
+
+For example: calls to `SSL_new` from within libssl will directly dispatch to
+the function inside libssl, disregarding what is going on with LD_PRELOAD.
+
+The result of this is that if we want to intercept all calls period, we need to
+use more powerful hooking primitives, such as those provided by Frida, which
+will replace the actual functions by our hooks by modifying the program code.
+
+[bsymbolic]: https://www.technovelty.org/c/what-exactly-does-bsymblic-do.html
 

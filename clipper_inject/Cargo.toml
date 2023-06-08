@@ -9,4 +9,12 @@ crate_type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ctor = "0.2.2"
+# auto-download is deeply personally offensive, however, it is way faster to
+# get working than to use nix (which will make it impossible to inject to Arch
+# binaries) or make a reasonable arch package
+frida-gum = { version = "0.12.0", features = ["auto-download"] }
+lazy_static = "1.4.0"
 libc = "0.2.145"
+regex = "1.8.4"
+thiserror = "1.0.40"
