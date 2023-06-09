@@ -2,7 +2,9 @@
 
 use std::ffi::{c_char, CStr};
 
-use super::{HookApplicability, HookService, Hooks, LibItem};
+use crate::log_target::LOG_TARGET;
+
+use super::{ApplicabilityContext, HookApplicability, HookService, Hooks, LibItem};
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -25,7 +27,19 @@ static SSL_CTX_set_keylog_callback: LibItem<unsafe extern "C" fn(SSL_CTX, SSL_CT
 
 unsafe extern "C" fn keylog_callback(_ssl: SSL, s: *const c_char) {
     let s = unsafe { CStr::from_ptr(s) };
-    eprintln!("nya!! {s:?}");
+    let _ = (move || {
+        let s = s.to_str().ok()?;
+        let mut s = s.split(' ');
+        let label = s.next()?;
+        let client_random = hex::decode(s.next()?).ok()?;
+        let secret = hex::decode(s.next()?).ok()?;
+
+        LOG_TARGET
+            .get()
+            .unwrap()
+            .log(label, &client_random, &secret);
+        Some(())
+    })();
 }
 
 unsafe extern "C" fn SSL_new_wrap(ctx: SSL_CTX) -> SSL {
@@ -44,7 +58,7 @@ impl Hooks for OpenSSLHooks {
         "openssl"
     }
 
-    unsafe fn apply(&self, hook_service: &mut HookService) {
+    unsafe fn apply(&self, hook_service: &mut HookService, _context: ApplicabilityContext<'_>) {
         hook_service
             .find_export(&SSL_CTX_set_keylog_callback)
             .unwrap();

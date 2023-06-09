@@ -8,15 +8,19 @@
 //! cannot be assumed.
 
 mod openssl;
+mod rustls;
 
 use std::{
     collections::HashSet,
+    fmt::Write,
     marker::FnPtr,
     mem, ptr,
     sync::{LazyLock, OnceLock},
 };
 
-use frida_gum::{interceptor::Interceptor, Gum, Module, NativePointer};
+use frida_gum::{
+    interceptor::Interceptor, Gum, Module, ModuleDetailsOwned, NativePointer, SymbolDetails,
+};
 use lazy_static::lazy_static;
 use libc::c_void;
 use regex::Regex;
@@ -116,16 +120,43 @@ impl<'a> HookService<'a> {
 
         Ok(())
     }
+
+    pub unsafe fn raw_hook(
+        &mut self,
+        fun: NativePointer,
+        redirect_to: NativePointer,
+    ) -> Result<(), HookError> {
+        self.interceptor
+            .replace(fun, redirect_to, NativePointer(ptr::null_mut()))?;
+        Ok(())
+    }
+}
+
+/// Context for checking for applicability
+#[derive(Clone)]
+pub struct ApplicabilityContext<'a> {
+    pub lib_names: &'a HashSet<String>,
+    pub modules: &'a [ModuleDetailsOwned],
+    pub main_symbols: &'a [SymbolDetails],
 }
 
 pub trait HookApplicability {
-    fn is_applicable(&self, lib_names: &HashSet<String>) -> bool;
+    fn is_applicable(&self, context: ApplicabilityContext<'_>) -> bool;
+}
+
+fn find_demangled_symbol<'a>(syms: &'a [SymbolDetails], name: &str) -> Option<&'a SymbolDetails> {
+    let mut buf = String::new();
+    syms.iter().find(|s| {
+        buf.clear();
+        write!(&mut buf, "{:#}", rustc_demangle::demangle(&s.name)).unwrap();
+        &buf == name
+    })
 }
 
 mod applicability {
-    use std::collections::HashSet;
+    use frida_gum::Module;
 
-    use super::HookApplicability;
+    use super::{find_demangled_symbol, ApplicabilityContext, HookApplicability};
 
     /// For e.g. `libssl.so.3`, this would be `libssl`.
     pub struct LibName(pub &'static str);
@@ -134,17 +165,28 @@ mod applicability {
     ///
     /// Useful for statically linked libraries, if we have symbols available
     /// (sometimes we do...).
-    pub struct SymbolPresent(pub &'static str);
+    pub struct SymbolPresent {
+        pub name: &'static str,
+        pub demangled: bool,
+    }
 
     impl HookApplicability for LibName {
-        fn is_applicable(&self, lib_names: &HashSet<String>) -> bool {
-            lib_names.contains(self.0)
+        fn is_applicable(&self, context: ApplicabilityContext<'_>) -> bool {
+            context.lib_names.contains(self.0)
         }
     }
 
     impl HookApplicability for SymbolPresent {
-        fn is_applicable(&self, _lib_names: &HashSet<String>) -> bool {
-            todo!("SymbolPresent applicability")
+        fn is_applicable(&self, context: ApplicabilityContext<'_>) -> bool {
+            let main_module = &context.modules[0];
+
+            // Can't do much about this, we have to demangle the thing and find
+            // it in the list. It's gonna be O(n).
+            if self.demangled {
+                find_demangled_symbol(&context.main_symbols, self.name).is_some()
+            } else {
+                Module::find_symbol_by_name(&main_module.name, self.name).is_some()
+            }
         }
     }
 }
@@ -158,7 +200,7 @@ pub trait Hooks: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Applies the hook
-    unsafe fn apply(&self, hook_service: &mut HookService);
+    unsafe fn apply(&self, hook_service: &mut HookService, context: ApplicabilityContext<'_>);
 }
 
 fn to_libname(name: &str) -> Option<&str> {
@@ -170,20 +212,32 @@ fn to_libname(name: &str) -> Option<&str> {
     Some(inside.as_str())
 }
 
-static HOOKS: &[&dyn Hooks] = &[&openssl::OpenSSLHooks {}];
+static HOOKS: &[&dyn Hooks] = &[&openssl::OpenSSLHooks {}, &rustls::RustlsHooks {}];
 
 pub unsafe fn init_hooks(hook_service: &mut HookService) {
     // FIXME: list of disabled hooks
 
-    let modmap = Module::enumerate_modules();
-    let libnames = modmap
+    let mod_list = Module::enumerate_modules();
+    let libnames = mod_list
         .iter()
         .filter_map(|m| to_libname(&m.name).map(|v| v.to_string()))
         .collect::<HashSet<String>>();
+    let main_symbols = Module::enumerate_symbols(&mod_list[0].name);
+
+    let applicability_context = ApplicabilityContext {
+        lib_names: &libnames,
+        modules: &mod_list,
+        main_symbols: &main_symbols,
+    };
 
     for &hook in HOOKS {
-        if hook.applicability().is_applicable(&libnames) {
-            unsafe { hook.apply(hook_service) };
+        tracing::debug!("checking if we should load hook {}", hook.name());
+        if hook
+            .applicability()
+            .is_applicable(applicability_context.clone())
+        {
+            tracing::debug!("apply hook {}", hook.name());
+            unsafe { hook.apply(hook_service, applicability_context.clone()) };
         }
     }
 }
