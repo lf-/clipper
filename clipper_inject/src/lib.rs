@@ -2,13 +2,13 @@
 #![feature(lazy_cell)]
 #![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
 
-use std::ops::Deref;
+use std::{fs::OpenOptions, ops::Deref};
 
 use frida_gum::Module;
 
 use crate::{
     hooks::{init_hooks, HookService, GUM},
-    log_target::{LogTargetStdout, LOG_TARGET},
+    log_target::{LogTargetStream, LOG_TARGET},
 };
 use tracing_subscriber::{fmt, prelude::*};
 
@@ -35,7 +35,20 @@ unsafe fn init() {
         );
     }
 
-    let _ = LOG_TARGET.set(Box::new(LogTargetStdout {}));
+    match std::env::var("SSLKEYLOGFILE") {
+        Ok(v) => {
+            let _ = LOG_TARGET.set(Box::new(LogTargetStream::new(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(v)
+                    .expect("opening SSLKEYLOGFILE"),
+            )));
+        }
+        Err(_) => {
+            let _ = LOG_TARGET.set(Box::new(LogTargetStream::new(std::io::stderr())));
+        }
+    }
 
     let mut hook_service = HookService::new();
     init_hooks(&mut hook_service);
