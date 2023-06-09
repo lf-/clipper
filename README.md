@@ -88,6 +88,15 @@ only our own child processes (which would be a success!).
 [userspace-tcp]: https://github.com/rootless-containers/slirp4netns
 [rootlesskit]: https://github.com/rootless-containers/rootlesskit
 
+To test with the current setup:
+
+```
+(in one terminal)
+$ sudo tcpdump -w nya.pcap 'tcp port 443'; editcap --inject-secrets 'tls,nya.ssl_log' nya.pcap nya-dsb.pcapng
+(in another terminal, after starting the first. hit ctrl c on the first when done)
+$ cargo b --workspace && LD_PRELOAD=./target/debug/libclipper_inject.so SSLKEYLOGFILE=nya.ssl_log target/debug/rustls-fixture
+```
+
 ### Note on why to use Frida
 
 Unfortunately, libraries consider it impolite behaviour to go override their
