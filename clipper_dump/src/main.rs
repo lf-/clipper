@@ -7,7 +7,7 @@ use pcap_parser::{
 };
 use pktparse::{ethernet::EtherType, tcp::TcpHeader};
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     fmt::{self, Debug},
     io::Cursor,
     net::{Ipv4Addr, Ipv6Addr},
@@ -41,16 +41,16 @@ impl IPHeader {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum IPTarget {
     V4 {
-        source_port: u16,
-        dest_port: u16,
-        source_ip: Ipv4Addr,
-        dest_ip: Ipv4Addr,
+        client_port: u16,
+        server_port: u16,
+        client_ip: Ipv4Addr,
+        server_ip: Ipv4Addr,
     },
     V6 {
-        source_port: u16,
-        dest_port: u16,
-        source_ip: Ipv6Addr,
-        dest_ip: Ipv6Addr,
+        client_port: u16,
+        server_port: u16,
+        client_ip: Ipv6Addr,
+        server_ip: Ipv6Addr,
     },
 }
 
@@ -58,18 +58,18 @@ impl Debug for IPTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::V4 {
-                source_port,
-                dest_port,
-                source_ip,
-                dest_ip,
+                client_port: source_port,
+                server_port: dest_port,
+                client_ip: source_ip,
+                server_ip: dest_ip,
             } => {
                 write!(f, "{source_ip:?}:{source_port} -> {dest_ip:?}:{dest_port}")
             }
             Self::V6 {
-                source_port,
-                dest_port,
-                source_ip,
-                dest_ip,
+                client_port: source_port,
+                server_port: dest_port,
+                client_ip: source_ip,
+                server_ip: dest_ip,
             } => {
                 write!(
                     f,
@@ -84,16 +84,16 @@ impl IPTarget {
     fn from_headers(ip: &IPHeader, tcp: &TcpHeader) -> IPTarget {
         match ip {
             IPHeader::V4(v4) => IPTarget::V4 {
-                source_port: tcp.source_port,
-                dest_port: tcp.dest_port,
-                source_ip: v4.source_addr,
-                dest_ip: v4.dest_addr,
+                client_port: tcp.source_port,
+                server_port: tcp.dest_port,
+                client_ip: v4.source_addr,
+                server_ip: v4.dest_addr,
             },
             IPHeader::V6(v6) => IPTarget::V6 {
-                source_port: tcp.source_port,
-                dest_port: tcp.dest_port,
-                source_ip: v6.source_addr,
-                dest_ip: v6.dest_addr,
+                client_port: tcp.source_port,
+                server_port: tcp.dest_port,
+                client_ip: v6.source_addr,
+                server_ip: v6.dest_addr,
             },
         }
     }
@@ -101,26 +101,26 @@ impl IPTarget {
     fn flip(self) -> IPTarget {
         match self {
             IPTarget::V4 {
-                source_port,
-                dest_port,
-                source_ip,
-                dest_ip,
+                client_port: source_port,
+                server_port: dest_port,
+                client_ip: source_ip,
+                server_ip: dest_ip,
             } => IPTarget::V4 {
-                source_port: dest_port,
-                dest_port: source_port,
-                source_ip: dest_ip,
-                dest_ip: source_ip,
+                client_port: dest_port,
+                server_port: source_port,
+                client_ip: dest_ip,
+                server_ip: source_ip,
             },
             IPTarget::V6 {
-                source_port,
-                dest_port,
-                source_ip,
-                dest_ip,
+                client_port: source_port,
+                server_port: dest_port,
+                client_ip: source_ip,
+                server_ip: dest_ip,
             } => IPTarget::V6 {
-                source_port: dest_port,
-                dest_port: source_port,
-                source_ip: dest_ip,
-                dest_ip: source_ip,
+                client_port: dest_port,
+                server_port: source_port,
+                client_ip: dest_ip,
+                server_ip: source_ip,
             },
         }
     }
@@ -173,8 +173,6 @@ impl Default for TCPState {
         TCPState::Closed
     }
 }
-
-impl TCPState {}
 
 #[derive(Clone, Debug, Default)]
 struct TCPSide {
@@ -305,10 +303,18 @@ impl TCPSide {
     }
 }
 
+#[derive(Clone, Debug)]
+struct TCPFlow {
+    /// State machine maintained for data received by the client side
+    client: TCPSide,
+    /// State machine maintained for data received by the server side
+    server: TCPSide,
+}
+
 #[derive(Clone, Debug, Default)]
 struct TcpFollower {
     /// Drives a TCP state machine based on the data received on a given side.
-    flows: HashMap<IPTarget, TCPSide>,
+    flows: HashMap<IPTarget, TCPFlow>,
 }
 
 struct PrintTcpHeader<'a>(&'a TcpHeader);
@@ -339,24 +345,56 @@ impl TcpFollower {
         tcp: &TcpHeader,
         data: &[u8],
     ) -> Result<(), Error> {
-        let entry = self.flows.entry(*target).or_insert_with(|| TCPSide {
-            state: if tcp.flag_syn && !tcp.flag_ack {
-                TCPState::Listen
-            } else {
-                TCPState::SynSent
-            },
-            ..Default::default()
-        });
+        let received_by_client = self.flows.contains_key(&target.flip());
+        let entry = if received_by_client {
+            // the reverse of the flow exists, so it's sent by the server
+            self.flows.entry(target.flip())
+        } else {
+            self.flows.entry(*target)
+        };
+
+        let entry = match entry {
+            Entry::Vacant(_) if received_by_client => unreachable!(),
+            // Flow that we are probably missing the front of
+            Entry::Vacant(_) if !received_by_client && (!tcp.flag_syn || tcp.flag_ack) => {
+                tracing::debug!("drop unk flow {target:?}");
+                return Ok(());
+            }
+            Entry::Vacant(v) => {
+                // We are client-sent, and need to init the connection
+                v.insert(TCPFlow {
+                    client: TCPSide {
+                        state: TCPState::SynSent,
+                        ..TCPSide::default()
+                    },
+                    server: TCPSide {
+                        state: TCPState::Listen,
+                        ..TCPSide::default()
+                    },
+                })
+            }
+            Entry::Occupied(v) => v.into_mut(),
+        };
+
+        let rx_side = if received_by_client {
+            &mut entry.client
+        } else {
+            &mut entry.server
+        };
+        let side_label = if received_by_client {
+            "client"
+        } else {
+            "server"
+        };
 
         tracing::debug!(
-            "tcp {} {:?} {:?} {:?}",
-            tcp.sequence_no.wrapping_sub(entry.irs),
-            entry.state,
+            "tcp {side_label} {:?} {:?} {:?}",
+            rx_side.state,
             target,
             PrintTcpHeader(&tcp)
         );
 
-        entry.drive_state(tcp, |entry| {
+        rx_side.drive_state(tcp, |entry| {
             let start = tcp.sequence_no.wrapping_sub(entry.rcv_next);
             tracing::debug!("accept start={start}");
             entry
@@ -476,10 +514,11 @@ fn dump_pcap(file: PathBuf) -> Result<(), Error> {
         }
     }
 
-    for (side, data) in chomper.tcp_follower.flows {
+    for (flow, data) in chomper.tcp_follower.flows {
         tracing::debug!(
-            "side: {side:?}, data:\n{}",
-            hexdump::HexDumper::new(&data.data)
+            "flow: {flow:?}, data:\n{}\n{}",
+            hexdump::HexDumper::new(&data.server.data),
+            hexdump::HexDumper::new(&data.client.data)
         );
     }
 
