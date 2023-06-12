@@ -80,6 +80,9 @@ pub struct KeyDB {
 impl KeyDB {
     pub fn load_key_log(&mut self, key_log: &[u8]) {
         let do_line = |line: &[u8]| -> Result<_, Box<dyn std::error::Error>> {
+            if line.starts_with(b"#") {
+                return Err("comment, ignore me".into());
+            }
             let [ty, client_random, secret]: [&[u8]; 3] =
                 match line.split(|&c| c == b' ').collect::<Vec<_>>().try_into() {
                     Ok(v) => v,
