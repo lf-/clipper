@@ -405,6 +405,12 @@ impl TcpFollower {
 
                         // Now have in-order segments, so we can do things with them
                         tracing::debug!("data: {}", hexdump::HexDumper::new(&bs));
+                        // FIXME: edge cases:
+                        // * Receive a seqnum which is LESS THAN the one
+                        // expected: perhaps for some reason we got part of a
+                        // buffer sent twice
+                        // * Receive an old seqnum twice (currently I think it
+                        // throws an assert).
                         rx_side.state_machine.drive_state(&header, |_side| {
                             // they gave us buffer uwu
                             recv.on_data(entry_key, received_by_client, bs);

@@ -873,6 +873,7 @@ dependencies = [
 name = "net_decode"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "hexdump",
  "pcap-parser",
  "pktparse",

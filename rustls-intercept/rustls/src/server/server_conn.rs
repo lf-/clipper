@@ -653,7 +653,7 @@ impl Accepted {
         })
     }
 
-    fn client_hello_payload(message: &Message) -> &ClientHelloPayload {
+    pub fn client_hello_payload(message: &Message) -> &ClientHelloPayload {
         match &message.payload {
             crate::msgs::message::MessagePayload::Handshake { parsed, .. } => match &parsed.payload
             {

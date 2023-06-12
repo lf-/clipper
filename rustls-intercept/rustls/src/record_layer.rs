@@ -134,7 +134,7 @@ impl RecordLayer {
         self.trial_decryption_len = Some(max_length);
     }
 
-    pub(crate) fn finish_trial_decryption(&mut self) {
+    pub fn finish_trial_decryption(&mut self) {
         self.trial_decryption_len = None;
     }
 

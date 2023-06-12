@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Rustls Contributors, Jade Lovelace
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR ISC
 //! Decoding of TLS, fun!
 //!
 //! It's 50/50 on hacking the shit out of rustls or figuring out how to use
@@ -6,7 +8,16 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use rustls_intercept::internal::{msgs::deframer::MessageDeframer, record_layer::RecordLayer};
+use rustls_intercept::{
+    internal::{
+        msgs::{
+            deframer::{Deframed, MessageDeframer},
+            message::{Message, PlainMessage},
+        },
+        record_layer::RecordLayer,
+    },
+    server::Accepted,
+};
 
 use crate::{chomp::IPTarget, tcp_reassemble::TCPFlowReceiver};
 
@@ -25,6 +36,27 @@ impl Default for TLSFlow {
             record_layer: RecordLayer::new(),
             deframer: MessageDeframer::default(),
             client_read_buffer: Default::default(),
+        }
+    }
+}
+
+impl TLSFlow {
+    // Relatively similar to ConnectionCore::deframe, but does not send alerts
+    // TODO: should we just concede and implement ConnectionCore and just not
+    // send data back???
+    fn deframe(&mut self) -> Result<Option<PlainMessage>, rustls_intercept::Error> {
+        match self.deframer.pop(&mut self.record_layer) {
+            Ok(Some(Deframed {
+                message,
+                trial_decryption_finished,
+                ..
+            })) => {
+                if trial_decryption_finished {
+                    self.record_layer.finish_trial_decryption();
+                }
+                Ok(Some(message))
+            }
+            _ => Ok(None),
         }
     }
 }
@@ -49,8 +81,15 @@ impl TCPFlowReceiver for TLSFlowTracker {
         if to_client {
             entry.client_read_buffer.extend(&data);
             entry.deframer.read(&mut entry.client_read_buffer).unwrap();
-            let msg = entry.deframer.pop(&mut entry.record_layer);
-            tracing::debug!("deframed: {:?}", msg);
+            let msg = entry.deframe();
+            // tracing::debug!("deframed: {:?}", msg);
+            if let Ok(Some(v)) = msg {
+                let msg = Message::try_from(v);
+                if let Ok(msg) = msg {
+                    tracing::debug!("msg: {:?}", &msg);
+                    // let hello = Accepted::client_hello_payload(&msg);
+                }
+            }
         }
     }
 }

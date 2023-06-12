@@ -29,3 +29,8 @@ I think that the right spot to split the library is at `ConnectionCore<Data>`,
 because it is where communication starts to be done (and particularly,
 communication which is inconvenient since it involves trying to send things to
 both sides).
+
+## Deframer
+
+The deframer reads messages, and *may* be able to decrypt them, depending on
+whether the `RecordLayer` provided has its encryption initialized.
