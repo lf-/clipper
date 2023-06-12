@@ -280,23 +280,22 @@ pub struct TCPFlow {
 }
 
 pub trait TCPFlowReceiver {
-    fn on_data(&self, target: IPTarget, to_client: bool, data: Vec<u8>);
+    fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>);
 }
 
 #[derive(Debug, Default)]
 pub struct NoOpTCPFlowReceiver {}
 
 impl TCPFlowReceiver for NoOpTCPFlowReceiver {
-    fn on_data(&self, _target: IPTarget, _to_client: bool, _data: Vec<u8>) {
+    fn on_data(&mut self, _target: IPTarget, _to_client: bool, _data: Vec<u8>) {
         // do nothing! :D
     }
 }
 
 #[derive(Debug, Default)]
-pub struct TcpFollower<Recv: TCPFlowReceiver> {
+pub struct TcpFollower {
     /// Drives a TCP state machine based on the data received on a given side.
     pub flows: HashMap<IPTarget, TCPFlow>,
-    pub on_data: Recv,
 }
 
 struct PrintTcpHeader<'a>(&'a TcpHeader);
@@ -320,20 +319,22 @@ impl<'a> Debug for PrintTcpHeader<'a> {
     }
 }
 
-impl<Recv: TCPFlowReceiver> TcpFollower<Recv> {
+impl TcpFollower {
     fn record_flow(
         &mut self,
         target: &IPTarget,
         tcp: &TcpHeader,
         data: &[u8],
+        recv: &mut dyn TCPFlowReceiver,
     ) -> Result<(), Error> {
         let received_by_client = self.flows.contains_key(&target.flip());
-        let entry = if received_by_client {
+        let entry_key = if received_by_client {
             // the reverse of the flow exists, so it's sent by the server
-            self.flows.entry(target.flip())
+            target.flip()
         } else {
-            self.flows.entry(*target)
+            *target
         };
+        let entry = self.flows.entry(entry_key);
 
         let entry = match entry {
             Entry::Vacant(_) if received_by_client => unreachable!(),
@@ -406,7 +407,7 @@ impl<Recv: TCPFlowReceiver> TcpFollower<Recv> {
                         tracing::debug!("data: {}", hexdump::HexDumper::new(&bs));
                         rx_side.state_machine.drive_state(&header, |_side| {
                             // they gave us buffer uwu
-                            self.on_data.on_data(target.clone(), received_by_client, bs);
+                            recv.on_data(entry_key, received_by_client, bs);
                         });
 
                         rx_side.state_machine.rcv_next = new_rcv_next.0;
@@ -420,13 +421,18 @@ impl<Recv: TCPFlowReceiver> TcpFollower<Recv> {
         Ok(())
     }
 
-    pub fn chomp(&mut self, ip_header: IPHeader, data: &[u8]) -> Result<(), Error> {
+    pub fn chomp(
+        &mut self,
+        ip_header: IPHeader,
+        data: &[u8],
+        recv: &mut dyn TCPFlowReceiver,
+    ) -> Result<(), Error> {
         let proto = ip_header.proto();
         match proto {
             pktparse::ip::IPProtocol::TCP => {
                 if let Ok((remain, tcp)) = pktparse::tcp::parse_tcp_header(data) {
                     let ip_target = IPTarget::from_headers(&ip_header, &tcp);
-                    self.record_flow(&ip_target, &tcp, remain)?;
+                    self.record_flow(&ip_target, &tcp, remain, recv)?;
                     tracing::debug!("\n{}", hexdump::HexDumper::new(remain));
                 }
             }

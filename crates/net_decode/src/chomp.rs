@@ -1,5 +1,6 @@
 use crate::{
     tcp_reassemble::{NoOpTCPFlowReceiver, TCPFlowReceiver, TcpFollower},
+    tls::TLSFlowTracker,
     Error,
 };
 use pcap_parser::{
@@ -90,6 +91,13 @@ impl IPTarget {
         }
     }
 
+    pub fn server_port(&self) -> u16 {
+        match self {
+            IPTarget::V4 { server_port, .. } => *server_port,
+            IPTarget::V6 { server_port, .. } => *server_port,
+        }
+    }
+
     pub fn flip(self) -> IPTarget {
         match self {
             IPTarget::V4 {
@@ -119,7 +127,8 @@ impl IPTarget {
 }
 
 struct PacketChomper<Recv: TCPFlowReceiver> {
-    pub tcp_follower: TcpFollower<Recv>,
+    pub tcp_follower: TcpFollower,
+    recv: Recv,
 }
 
 impl<Recv: TCPFlowReceiver> PacketChomper<Recv> {
@@ -130,13 +139,15 @@ impl<Recv: TCPFlowReceiver> PacketChomper<Recv> {
                 EtherType::IPv4 => {
                     if let Ok((remain, pkt)) = pktparse::ipv4::parse_ipv4_header(remain) {
                         // tracing::debug!("ipv4 pakit! {:?}", &pkt);
-                        self.tcp_follower.chomp(IPHeader::V4(pkt), remain)?;
+                        self.tcp_follower
+                            .chomp(IPHeader::V4(pkt), remain, &mut self.recv)?;
                     }
                 }
                 EtherType::IPv6 => {
                     if let Ok((remain, pkt)) = pktparse::ipv6::parse_ipv6_header(remain) {
                         tracing::debug!("ipv6 pakit! {:?}", &pkt);
-                        self.tcp_follower.chomp(IPHeader::V6(pkt), remain)?;
+                        self.tcp_follower
+                            .chomp(IPHeader::V6(pkt), remain, &mut self.recv)?;
                     }
                 }
                 _ => {
@@ -169,7 +180,8 @@ pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
 
     let mut pcap = PcapNGReader::new(65536, Cursor::new(contents))?;
     let mut chomper = PacketChomper {
-        tcp_follower: TcpFollower::<NoOpTCPFlowReceiver>::default(),
+        tcp_follower: TcpFollower::default(),
+        recv: TLSFlowTracker::default(),
     };
 
     let mut packet_count = 1u64;
