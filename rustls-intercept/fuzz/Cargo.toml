@@ -1,0 +1,46 @@
+
+[package]
+name = "rustls-fuzz"
+version = "0.0.1"
+authors = ["Automatically generated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+webpki = "0.22"
+
+[dependencies.rustls]
+path = "../rustls"
+[dependencies.libfuzzer-sys]
+git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "message"
+path = "fuzzers/message.rs"
+
+[[bin]]
+name = "deframer"
+path = "fuzzers/deframer.rs"
+
+[[bin]]
+name = "fragment"
+path = "fuzzers/fragment.rs"
+
+[[bin]]
+name = "persist"
+path = "fuzzers/persist.rs"
+
+[[bin]]
+name = "client"
+path = "fuzzers/client.rs"
+
+[[bin]]
+name = "server"
+path = "fuzzers/server.rs"

@@ -1,0 +1,9 @@
+[workspace]
+members = [
+  # tests and example code
+  "examples",
+  # the main library and tests
+  "rustls",
+]
+exclude = ["admin/rustfmt"]
+resolver = "2"

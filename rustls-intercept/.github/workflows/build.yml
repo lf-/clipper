@@ -1,0 +1,254 @@
+name: rustls
+
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 18 * * *'
+
+jobs:
+  build:
+    name: Build+test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # test a bunch of toolchains on ubuntu
+        rust:
+          - stable
+          - beta
+          - nightly
+          - 1.57 # MSRV
+        os: [ubuntu-20.04]
+        # but only stable on macos/windows (slower platforms)
+        include:
+          - os: macos-latest
+            rust: stable
+          - os: windows-latest
+            rust: stable
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install ${{ matrix.rust }} toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: cargo build (debug; default features)
+        run: cargo build
+
+      - name: cargo test (debug; all features)
+        run: cargo test --all-features
+        env:
+          RUST_BACKTRACE: 1
+
+
+  features:
+    name: Features
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo build (debug; default features)
+        run: cargo build
+
+      - name: cargo test (debug; default features)
+        run: cargo test
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: cargo build (debug; no default features)
+        run: cargo test --no-default-features
+
+      - name: cargo test (debug; no default features; tls12)
+        run: cargo test --no-default-features --features tls12
+
+      - name: cargo test (release; no run)
+        run: cargo test --release --no-run
+
+  bogo:
+    name: BoGo test suite
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install golang toolchain
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"
+
+      - name: Run test suite
+        working-directory: bogo
+        run: ./runme
+
+
+  fuzz:
+    name: Smoke-test fuzzing targets
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Smoke-test fuzz targets
+        run: |
+          cargo fuzz build
+          for target in $(cargo fuzz list) ; do
+            cargo fuzz run $target -- -max_total_time=10
+          done
+
+  benchmarks:
+    name: Smoke-test benchmarks
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Smoke-test benchmark program
+        run: cargo run --release --example bench
+
+  docs:
+    name: Check for documentation errors
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: cargo doc (all features)
+        run: cargo doc --all-features --no-deps --workspace
+        env:
+          RUSTDOCFLAGS: -Dwarnings
+
+  coverage:
+    name: Measure coverage
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Install golang toolchain
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"
+
+      - name: Measure coverage
+        run: ./admin/coverage --lcov --output-path final.info
+
+      - name: Report to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          file: final.info
+          fail_ci_if_error: false
+
+
+  minver:
+    name: Check minimum versions
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: cargo test (debug; all features; -Z minimal-versions)
+        run: cargo -Z minimal-versions test --all-features
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check formatting (connect-tests workspace)
+        run: cargo fmt --all --manifest-path=connect-tests/Cargo.toml -- --check
+      - name: Check formatting (fuzz workspace)
+        run: cargo fmt --all --manifest-path=fuzz/Cargo.toml -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --package rustls --all-features -- --deny warnings
+      - run: cargo clippy --package rustls --no-default-features -- --deny warnings
+      - run: cargo clippy --manifest-path=connect-tests/Cargo.toml --all-features -- --deny warnings
+      - run: cargo clippy --manifest-path=fuzz/Cargo.toml --all-features -- --deny warnings
+
+  clippy-nightly:
+    name: Clippy (Nightly)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - run: cargo clippy --package rustls --all-features
+      - run: cargo clippy --package rustls --no-default-features -- --deny warnings
+      - run: cargo clippy --manifest-path=connect-tests/Cargo.toml --all-features -- --deny warnings
+      - run: cargo clippy --manifest-path=fuzz/Cargo.toml --all-features -- --deny warnings

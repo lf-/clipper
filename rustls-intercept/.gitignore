@@ -1,0 +1,13 @@
+Cargo.lock
+target/
+*.gcda
+*.gcno
+*.info
+sslkeylogfile.txt
+admin/rustfmt
+.DS_Store
+._.DS_Store
+**/.DS_Store
+**/._.DS_Store
+/.idea
+/default.profraw

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+# This script fetches, builds, and runs the BoringSSL
+# TLS test tool ('BoGo') against rustls.
+
+set -xe
+
+if [ "x$USE_EXISTING_BOGO_SHIM" = "x" ] ; then
+  cargo build --example bogo_shim --features dangerous_configuration,quic
+fi
+
+if [ ! -e bogo/ssl/test/runner/runner.test ] ; then
+  ./fetch-and-build
+  cp -v keys/* bogo/
+fi
+
+# Best effort on OS-X
+case $OSTYPE in darwin*) set +e ;; esac
+
+( cd bogo/ssl/test/runner && ./runner.test -shim-path ../../../../../target/debug/examples/bogo_shim \
+     -shim-config ../../../../config.json \
+     -pipe \
+     -allow-unimplemented \
+     -test.timeout 60s \
+     "$@") # you can pass in `-test "Foo;Bar"` to run specific tests
+true

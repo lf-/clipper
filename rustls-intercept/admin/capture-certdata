@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+
+import subprocess
+import base64
+from os import path
+
+SITES = dict(
+    google = 'www.google.com',
+    duckduckgo = 'duckduckgo.com',
+    github = 'github.com',
+    wikipedia = 'wikipedia.org',
+    arstechnica = 'arstechnica.com',
+    reddit = 'reddit.com',
+    hn = 'news.ycombinator.com',
+    servo = 'servo.org',
+    rustlang = 'www.rust-lang.org',
+    wapo = 'www.washingtonpost.com',
+    twitter = 'twitter.com',
+    stackoverflow = 'stackoverflow.com',
+)
+
+def extract_certs(lines):
+    buffer = None
+
+    for l in lines:
+        if b'-----BEGIN CERT' in l:
+            buffer = b''
+        elif b'-----END CERT' in l and buffer is not None:
+            yield base64.b64decode(buffer)
+            buffer = None
+        elif buffer is not None:
+            buffer += l
+
+def collect(hostname):
+    subp = subprocess.Popen([
+        'openssl',
+        's_client',
+        '-showcerts',
+        '-connect',
+        hostname + ':443',
+        ],
+        stderr = subprocess.PIPE,
+        stdout = subprocess.PIPE,
+        stdin = subprocess.PIPE)
+    stdout, stderr = subp.communicate('')
+
+    stdout = stdout.splitlines()
+    certs = list(extract_certs(stdout))
+    return certs
+
+if __name__ == '__main__':
+    certfile = lambda name, i: 'rustls/src/testdata/cert-%s.%d.der' % (name, i)
+
+    for name, hostname in SITES.items():
+        if path.exists(certfile(name, 0)):
+            continue
+        certchain = collect(hostname)
+
+        for i, cert in enumerate(certchain):
+            open(certfile(name, i), 'wb').write(cert)
+            print('wrote', certfile(name, i))
+

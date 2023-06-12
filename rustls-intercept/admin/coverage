@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -e
+
+source <(cargo llvm-cov show-env --export-prefix)
+cargo llvm-cov clean --workspace
+
+cargo build --all-targets --all-features
+cargo test --all-features
+cargo llvm-cov report "$@"
