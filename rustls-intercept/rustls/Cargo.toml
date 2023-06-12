@@ -1,5 +1,5 @@
 [package]
-name = "rustls"
+name = "rustls-intercept"
 version = "0.21.1"
 edition = "2021"
 rust-version = "1.57"
