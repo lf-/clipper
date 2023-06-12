@@ -832,7 +832,7 @@ dependencies = [
  "pcap-parser",
  "pktparse",
  "proptest",
- "tls-parser",
+ "rustls",
  "tracing",
 ]
 

@@ -114,3 +114,9 @@ will replace the actual functions by our hooks by modifying the program code.
 
 [bsymbolic]: https://www.technovelty.org/c/what-exactly-does-bsymblic-do.html
 
+### TLS interception implementation
+
+It looks like tls-parser does not actually support decrypting sessions. So
+that's No Fun. However, I am also not foolish enough to write a TLS
+implementation. Thus we are forking rustls to do horrible horrible crimes to
+it and poke all the internals. Exciting!
