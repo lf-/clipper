@@ -4,10 +4,8 @@ use clap::Parser;
 
 use std::{fmt::Debug, path::PathBuf};
 
+use net_decode::chomp;
 use tracing_subscriber::prelude::*;
-
-mod chomp;
-mod tcp_reassemble;
 
 type Error = Box<dyn std::error::Error>;
 

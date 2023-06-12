@@ -239,6 +239,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "hexdump",
+ "net_decode",
  "pcap-parser",
  "pktparse",
  "proptest",
@@ -310,10 +311,6 @@ name = "cty"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b365fabc795046672053e29c954733ec3b05e4be654ab130fe8f1f94d7051f35"
-
-[[package]]
-name = "decrypt"
-version = "0.1.0"
 
 [[package]]
 name = "either"
@@ -825,6 +822,18 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "net_decode"
+version = "0.1.0"
+dependencies = [
+ "hexdump",
+ "pcap-parser",
+ "pktparse",
+ "proptest",
+ "tls-parser",
+ "tracing",
 ]
 
 [[package]]
