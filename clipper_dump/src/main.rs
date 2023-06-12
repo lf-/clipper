@@ -7,14 +7,16 @@ use pcap_parser::{
 };
 use pktparse::{ethernet::EtherType, tcp::TcpHeader};
 use std::{
-    collections::{hash_map::Entry, HashMap},
     fmt::{self, Debug},
     io::Cursor,
     net::{Ipv4Addr, Ipv6Addr},
     path::PathBuf,
 };
+use tcp_reassemble::{NoOpTCPFlowReceiver, TCPFlowReceiver, TcpFollower};
 use tracing::Level;
 use tracing_subscriber::prelude::*;
+
+mod tcp_reassemble;
 
 type Error = Box<dyn std::error::Error>;
 
@@ -24,7 +26,7 @@ enum Command {
 }
 
 #[derive(Clone, Debug)]
-enum IPHeader {
+pub enum IPHeader {
     V4(pktparse::ipv4::IPv4Header),
     V6(pktparse::ipv6::IPv6Header),
 }
@@ -39,7 +41,7 @@ impl IPHeader {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum IPTarget {
+pub enum IPTarget {
     V4 {
         client_port: u16,
         server_port: u16,
@@ -126,309 +128,11 @@ impl IPTarget {
     }
 }
 
-/// https://datatracker.ietf.org/doc/html/rfc9293#name-state-machine-overview
-#[derive(Clone, Copy, Debug)]
-enum TCPState {
-    /// "Represents waiting for a connection request from any remote TCP peer
-    /// and port"
-    Listen,
-    /// "Represents waiting for a matching connection request after having sent
-    /// a connection request"
-    SynSent,
-    /// "Represents waiting for a confirming connection request acknowledgment
-    /// after having both received and sent a connection request"
-    SynReceived,
-    /// "Represents an open connection, data received can be delivered to the
-    /// user. The normal state for the data transfer phase of the connection"
-    Established,
-    /// "Represents waiting for a connection termination request from the
-    /// remote TCP peer, or an acknowledgment of the connection termination
-    /// request previously sent"
-    FinWait1,
-    /// "Represents waiting for a connection termination request from the
-    /// remote TCP peer."
-    FinWait2,
-    /// "Represents waiting for a connection termination request from the local
-    /// user"
-    CloseWait,
-    /// "Represents waiting for a connection termination request acknowledgment
-    /// from the remote TCP peer"
-    Closing,
-    /// "Represents waiting for an acknowledgment of the connection termination
-    /// request previously sent to the remote TCP peer (this termination
-    /// request sent to the remote TCP peer already included an acknowledgment
-    /// of the termination request sent from the remote TCP peer)."
-    LastAck,
-    /// "Represents waiting for enough time to pass to be sure the remote TCP
-    /// peer received the acknowledgment of its connection termination request
-    /// and to avoid new connections being impacted by delayed segments from
-    /// previous connections."
-    TimeWait,
-    /// "Represents no connection state at all."
-    Closed,
+struct PacketChomper<Recv: TCPFlowReceiver> {
+    pub tcp_follower: TcpFollower<Recv>,
 }
 
-impl Default for TCPState {
-    fn default() -> Self {
-        TCPState::Closed
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-struct TCPSide {
-    pub state: TCPState,
-
-    /// initial receive sequence number
-    irs: u32,
-    /// expected next received sequence number
-    rcv_next: u32,
-
-    /// initial send sequence number
-    iss: u32,
-    /// FIXME:
-    send_next: u32,
-    /// Last unacknowledged sequence number (SND.UNA)
-    send_unack: u32,
-
-    // FIXME: how do we get stuff OUT of the buffer before we run out of window
-    // size? implementing PUSH?
-    pub data: Vec<u8>,
-}
-
-impl TCPSide {
-    fn drive_state(&mut self, tcp: &TcpHeader, process_data: impl FnOnce(&mut Self)) {
-        let flag_syn = tcp.flag_syn;
-        let flag_ack = tcp.flag_ack;
-        let flag_rst = tcp.flag_rst;
-        let flag_fin = tcp.flag_fin;
-
-        // https://datatracker.ietf.org/doc/html/rfc9293#section-3.10.7.2
-        match self.state {
-            TCPState::Closed => return,
-            TCPState::Listen => {
-                // First, check for a RST
-                if flag_rst {
-                    return;
-                }
-
-                // All ACKs in Listen are bad.
-                if flag_ack {
-                    return;
-                }
-
-                if flag_syn {
-                    self.rcv_next = tcp.sequence_no.wrapping_add(1);
-                    self.irs = tcp.sequence_no;
-                    // NOTE: we don't KNOW what ISS is because we don't get to
-                    // send it! This will be fixed by recovering the ISS in
-                    // SynReceived.
-                    // SND.NXT = ISS+1
-                    // SND.UNA = ISS
-                    self.state = TCPState::SynReceived;
-                }
-            }
-            TCPState::SynSent => {
-                // XXX: fixup of ISS
-                self.iss = tcp.ack_no.wrapping_sub(1);
-                self.send_next = self.iss.wrapping_add(1);
-                self.send_unack = self.iss;
-
-                if flag_ack {
-                    if tcp.ack_no <= self.iss || tcp.ack_no > self.send_next {
-                        tracing::debug!("3.10.7.3 dropped packet");
-                        return;
-                    }
-                }
-
-                if flag_rst {
-                    return;
-                }
-
-                if flag_syn {
-                    self.rcv_next = tcp.sequence_no.wrapping_add(1);
-                    self.irs = tcp.sequence_no;
-
-                    if flag_ack {
-                        self.send_unack = tcp.ack_no;
-                    }
-
-                    if self.send_unack > self.iss {
-                        self.state = TCPState::Established;
-                    } else {
-                        // FIXME: SND.WND, SND.WL1, SND.WL2
-                        self.state = TCPState::SynReceived;
-                    }
-                }
-            }
-            TCPState::SynReceived => {
-                if flag_syn {
-                    // most likely the correct option here is to return to
-                    // LISTEN per 3.10.7.4
-                    self.state = TCPState::Listen;
-                    return;
-                }
-
-                // XXX: fixup of ISS
-                self.iss = tcp.ack_no.wrapping_sub(1);
-                self.send_next = self.iss.wrapping_add(1);
-                self.send_unack = self.iss;
-
-                if flag_ack {
-                    if self.send_unack < tcp.ack_no && tcp.ack_no <= self.send_next {
-                        // FIXME:
-                        // SND.WND = SEG.WND
-                        // SND.WL1 = SEG.SEQ
-                        // SND.WL2 = SEG.ACK
-                        self.state = TCPState::Established;
-                    }
-                }
-            }
-            TCPState::Established => {
-                if self.send_unack < tcp.ack_no && tcp.ack_no <= self.send_next {
-                    self.send_unack = tcp.ack_no;
-                }
-
-                process_data(self);
-
-                // FIXME: this is definitely wrong, but it's unclear how we
-                // should act as a non-speaking TCP implementation
-                if flag_fin {
-                    self.state = TCPState::Closed;
-                }
-            }
-            _ => {
-                tracing::debug!("FIXME: unimplemented tcp state {self:?}");
-            }
-        };
-    }
-}
-
-#[derive(Clone, Debug)]
-struct TCPFlow {
-    /// State machine maintained for data received by the client side
-    client: TCPSide,
-    /// State machine maintained for data received by the server side
-    server: TCPSide,
-}
-
-#[derive(Clone, Debug, Default)]
-struct TcpFollower {
-    /// Drives a TCP state machine based on the data received on a given side.
-    flows: HashMap<IPTarget, TCPFlow>,
-}
-
-struct PrintTcpHeader<'a>(&'a TcpHeader);
-
-impl<'a> Debug for PrintTcpHeader<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut field = |name: &str, val| -> fmt::Result {
-            if val {
-                write!(f, "{name} ")
-            } else {
-                for _ in 0..name.len() + 1 {
-                    write!(f, " ")?
-                }
-                Ok(())
-            }
-        };
-        field("SYN", self.0.flag_syn)?;
-        field("ACK", self.0.flag_ack)?;
-        field("FIN", self.0.flag_fin)?;
-        write!(f, "{:?}", self.0)
-    }
-}
-
-impl TcpFollower {
-    fn record_flow(
-        &mut self,
-        target: &IPTarget,
-        tcp: &TcpHeader,
-        data: &[u8],
-    ) -> Result<(), Error> {
-        let received_by_client = self.flows.contains_key(&target.flip());
-        let entry = if received_by_client {
-            // the reverse of the flow exists, so it's sent by the server
-            self.flows.entry(target.flip())
-        } else {
-            self.flows.entry(*target)
-        };
-
-        let entry = match entry {
-            Entry::Vacant(_) if received_by_client => unreachable!(),
-            // Flow that we are probably missing the front of
-            Entry::Vacant(_) if !received_by_client && (!tcp.flag_syn || tcp.flag_ack) => {
-                tracing::debug!("drop unk flow {target:?}");
-                return Ok(());
-            }
-            Entry::Vacant(v) => {
-                // We are client-sent, and need to init the connection
-                v.insert(TCPFlow {
-                    client: TCPSide {
-                        state: TCPState::SynSent,
-                        ..TCPSide::default()
-                    },
-                    server: TCPSide {
-                        state: TCPState::Listen,
-                        ..TCPSide::default()
-                    },
-                })
-            }
-            Entry::Occupied(v) => v.into_mut(),
-        };
-
-        let rx_side = if received_by_client {
-            &mut entry.client
-        } else {
-            &mut entry.server
-        };
-        let side_label = if received_by_client {
-            "client"
-        } else {
-            "server"
-        };
-
-        tracing::debug!(
-            "tcp {side_label} {:?} {:?} {:?}",
-            rx_side.state,
-            target,
-            PrintTcpHeader(&tcp)
-        );
-
-        rx_side.drive_state(tcp, |entry| {
-            let start = tcp.sequence_no.wrapping_sub(entry.rcv_next);
-            tracing::debug!("accept start={start}");
-            entry
-                .data
-                .resize(entry.data.len().max(start as usize + data.len()), 0);
-            entry.data[start as usize..start as usize + data.len()].copy_from_slice(data);
-        });
-
-        Ok(())
-    }
-
-    fn chomp(&mut self, ip_header: IPHeader, data: &[u8]) -> Result<(), Error> {
-        let proto = ip_header.proto();
-        match proto {
-            pktparse::ip::IPProtocol::TCP => {
-                if let Ok((remain, tcp)) = pktparse::tcp::parse_tcp_header(data) {
-                    let ip_target = IPTarget::from_headers(&ip_header, &tcp);
-                    self.record_flow(&ip_target, &tcp, remain)?;
-                    tracing::debug!("\n{}", hexdump::HexDumper::new(remain));
-                }
-            }
-            p => {
-                tracing::debug!("unk protocol {p:?}");
-            }
-        }
-        Ok(())
-    }
-}
-
-struct PacketChomper {
-    pub tcp_follower: TcpFollower,
-}
-
-impl PacketChomper {
+impl<Recv: TCPFlowReceiver> PacketChomper<Recv> {
     fn chomp(&mut self, packet: &[u8]) -> Result<(), Error> {
         if let Ok((remain, frame)) = pktparse::ethernet::parse_ethernet_frame(&packet) {
             // tracing::debug!("frame! {:?}", &frame);
@@ -475,7 +179,7 @@ fn dump_pcap(file: PathBuf) -> Result<(), Error> {
 
     let mut pcap = PcapNGReader::new(65536, Cursor::new(contents))?;
     let mut chomper = PacketChomper {
-        tcp_follower: TcpFollower::default(),
+        tcp_follower: TcpFollower::<NoOpTCPFlowReceiver>::default(),
     };
 
     let mut packet_count = 1u64;
@@ -515,11 +219,12 @@ fn dump_pcap(file: PathBuf) -> Result<(), Error> {
     }
 
     for (flow, data) in chomper.tcp_follower.flows {
-        tracing::debug!(
-            "flow: {flow:?}, data:\n{}\n{}",
-            hexdump::HexDumper::new(&data.server.data),
-            hexdump::HexDumper::new(&data.client.data)
-        );
+        // TODO
+        // tracing::debug!(
+        //     "flow: {flow:?}, data:\n{}\n{}",
+        //     hexdump::HexDumper::new(&data.server.data),
+        //     hexdump::HexDumper::new(&data.client.data)
+        // );
     }
 
     Ok(())
