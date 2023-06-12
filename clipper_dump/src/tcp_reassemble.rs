@@ -9,7 +9,7 @@ use std::{
     ops::Bound,
 };
 
-use crate::{Error, IPHeader, IPTarget};
+use crate::{chomp::IPHeader, chomp::IPTarget, Error};
 
 /// https://datatracker.ietf.org/doc/html/rfc9293#name-state-machine-overview
 #[allow(unused)]
@@ -287,7 +287,7 @@ pub trait TCPFlowReceiver {
 pub struct NoOpTCPFlowReceiver {}
 
 impl TCPFlowReceiver for NoOpTCPFlowReceiver {
-    fn on_data(&self, target: IPTarget, to_client: bool, data: Vec<u8>) {
+    fn on_data(&self, _target: IPTarget, _to_client: bool, _data: Vec<u8>) {
         // do nothing! :D
     }
 }
@@ -404,7 +404,7 @@ impl<Recv: TCPFlowReceiver> TcpFollower<Recv> {
 
                         // Now have in-order segments, so we can do things with them
                         tracing::debug!("data: {}", hexdump::HexDumper::new(&bs));
-                        rx_side.state_machine.drive_state(&header, |side| {
+                        rx_side.state_machine.drive_state(&header, |_side| {
                             // they gave us buffer uwu
                             self.on_data.on_data(target.clone(), received_by_client, bs);
                         });
