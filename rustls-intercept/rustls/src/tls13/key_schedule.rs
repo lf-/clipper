@@ -251,29 +251,66 @@ impl KeyScheduleHandshakeStart {
     }
 }
 
-pub(crate) struct KeyScheduleHandshake {
+pub struct KeyScheduleHandshake {
     ks: KeySchedule,
     client_handshake_traffic_secret: hkdf::Prk,
     server_handshake_traffic_secret: hkdf::Prk,
 }
 
 impl KeyScheduleHandshake {
+    /// Used for injecting keys from a dump
+    pub fn from_data(
+        suite: &'static Tls13CipherSuite,
+        client_handshake_traffic_secret: &[u8],
+        server_handshake_traffic_secret: &[u8],
+    ) -> Self {
+        Self {
+            client_handshake_traffic_secret: hkdf::Prk::new_less_safe(
+                suite.hkdf_algorithm,
+                client_handshake_traffic_secret,
+            ),
+            server_handshake_traffic_secret: hkdf::Prk::new_less_safe(
+                suite.hkdf_algorithm,
+                server_handshake_traffic_secret,
+            ),
+            ks: KeySchedule::new_with_empty_secret(suite),
+        }
+    }
+
+    // XXX
+    pub fn install_client_handshake_secrets(
+        &self,
+        early_data_enabled: bool,
+        common: &mut CommonState,
+    ) {
+        self.ks
+            .set_decrypter(&self.server_handshake_traffic_secret, common);
+
+        if !early_data_enabled {
+            // Set the client encryption key for handshakes if early data is not used
+            self.ks
+                .set_encrypter(&self.client_handshake_traffic_secret, common);
+        }
+    }
+
+    // FIXME(jade): I am not sure if this is totally correct
+    pub fn install_server_handshake_secrets(&self, common: &mut CommonState) {
+        self.ks
+            .set_decrypter(&self.client_handshake_traffic_secret, common);
+    }
+
     pub(crate) fn sign_server_finish(&self, hs_hash: &Digest) -> hmac::Tag {
         self.ks
             .sign_finish(&self.server_handshake_traffic_secret, hs_hash)
     }
 
-    pub(crate) fn set_handshake_encrypter(&self, common: &mut CommonState) {
+    pub fn set_handshake_encrypter(&self, common: &mut CommonState) {
         debug_assert_eq!(common.side, Side::Client);
         self.ks
             .set_encrypter(&self.client_handshake_traffic_secret, common);
     }
 
-    pub(crate) fn set_handshake_decrypter(
-        &self,
-        skip_requested: Option<usize>,
-        common: &mut CommonState,
-    ) {
+    pub fn set_handshake_decrypter(&self, skip_requested: Option<usize>, common: &mut CommonState) {
         debug_assert_eq!(common.side, Side::Server);
         let secret = &self.client_handshake_traffic_secret;
         match skip_requested {
@@ -416,7 +453,7 @@ impl KeyScheduleTrafficWithClientFinishedPending {
 
 /// KeySchedule during traffic stage.  All traffic & exporter keys are guaranteed
 /// to be available.
-pub(crate) struct KeyScheduleTraffic {
+pub struct KeyScheduleTraffic {
     ks: KeySchedule,
     current_client_traffic_secret: hkdf::Prk,
     current_server_traffic_secret: hkdf::Prk,
@@ -459,6 +496,46 @@ impl KeyScheduleTraffic {
             current_server_traffic_secret,
             current_exporter_secret,
         }
+    }
+
+    /// Creates a KeyScheduleTraffic with broken further derivation and
+    /// importing keys.
+    pub fn from_data(
+        suite: &'static Tls13CipherSuite,
+        client_traffic_secret: &[u8],
+        server_traffic_secret: &[u8],
+        exporter_secret: &[u8],
+    ) -> Self {
+        Self {
+            ks: KeySchedule::new_with_empty_secret(suite),
+            current_client_traffic_secret: hkdf::Prk::new_less_safe(
+                suite.hkdf_algorithm,
+                client_traffic_secret,
+            ),
+            current_server_traffic_secret: hkdf::Prk::new_less_safe(
+                suite.hkdf_algorithm,
+                &server_traffic_secret,
+            ),
+            current_exporter_secret: hkdf::Prk::new_less_safe(
+                suite.hkdf_algorithm,
+                exporter_secret,
+            ),
+        }
+    }
+
+    pub fn load_keys(&self, side: Side, common: &mut CommonState) {
+        let (enc, dec) = match side {
+            Side::Client => (
+                &self.current_client_traffic_secret,
+                &self.current_server_traffic_secret,
+            ),
+            Side::Server => (
+                &self.current_server_traffic_secret,
+                &self.current_client_traffic_secret,
+            ),
+        };
+        self.ks.set_encrypter(enc, common);
+        self.ks.set_decrypter(dec, common);
     }
 
     pub(crate) fn update_encrypter_and_notify(&mut self, common: &mut CommonState) {

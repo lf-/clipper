@@ -293,6 +293,18 @@ impl TCPFlowReceiver for NoOpTCPFlowReceiver {
 }
 
 #[derive(Debug, Default)]
+pub struct HexDumpTCPFlowReceiver {}
+
+impl TCPFlowReceiver for HexDumpTCPFlowReceiver {
+    fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>) {
+        tracing::info!(
+            "tcp {target:?} to_client={to_client}:\n{}",
+            hexdump::HexDumper::new(&data)
+        );
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct TcpFollower {
     /// Drives a TCP state machine based on the data received on a given side.
     pub flows: HashMap<IPTarget, TCPFlow>,

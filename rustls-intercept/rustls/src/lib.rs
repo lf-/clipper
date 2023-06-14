@@ -312,7 +312,7 @@ mod log {
 }
 
 #[macro_use]
-mod msgs;
+pub mod msgs;
 mod anchors;
 mod cipher;
 mod common_state;
@@ -332,7 +332,7 @@ mod verify;
 mod verifybench;
 mod x509;
 #[macro_use]
-mod check;
+pub mod check;
 mod bs_debug;
 mod builder;
 mod enums;
@@ -358,6 +358,14 @@ pub mod internal {
     /// Low-level TLS record layer functions.
     pub mod record_layer {
         pub use crate::record_layer::{Decrypted, RecordLayer};
+    }
+
+    pub mod check {
+        pub use crate::check::*;
+    }
+
+    pub mod key_schedule {
+        pub use crate::tls13::key_schedule::*;
     }
 }
 

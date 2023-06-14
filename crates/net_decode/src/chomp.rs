@@ -1,5 +1,6 @@
 use crate::{
-    tcp_reassemble::{NoOpTCPFlowReceiver, TCPFlowReceiver, TcpFollower},
+    key_db::KeyDB,
+    tcp_reassemble::{HexDumpTCPFlowReceiver, NoOpTCPFlowReceiver, TCPFlowReceiver, TcpFollower},
     tls::TLSFlowTracker,
     Error,
 };
@@ -13,6 +14,7 @@ use std::{
     io::Cursor,
     net::{Ipv4Addr, Ipv6Addr},
     path::PathBuf,
+    sync::{Arc, RwLock},
 };
 use tracing::Level;
 
@@ -179,9 +181,10 @@ pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
     let contents = std::fs::read(file)?;
 
     let mut pcap = PcapNGReader::new(65536, Cursor::new(contents))?;
+    let key_db = Arc::new(RwLock::new(KeyDB::default()));
     let mut chomper = PacketChomper {
         tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::default(),
+        recv: TLSFlowTracker::new(key_db.clone(), Box::new(HexDumpTCPFlowReceiver {})),
     };
 
     let mut packet_count = 1u64;
@@ -198,7 +201,9 @@ pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
                                 tracing::debug!(
                                     "DSB: {}",
                                     Show(&dsb.data[..dsb.secrets_len as usize])
-                                )
+                                );
+                                let mut kdb = key_db.write().unwrap();
+                                kdb.load_key_log(&dsb.data[..dsb.secrets_len as usize]);
                             }
                             pcap_parser::Block::EnhancedPacket(epb) => {
                                 chomper.chomp(epb.packet_data()).unwrap();

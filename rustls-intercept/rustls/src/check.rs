@@ -8,6 +8,7 @@ use crate::msgs::message::MessagePayload;
 /// return Ok(payload) if $m is both a handshake message and one that
 /// has the given $payload_type.  If not, return Err(rustls::Error) quoting
 /// $handshake_type as the expected handshake type.
+#[macro_export]
 macro_rules! require_handshake_msg(
   ( $m:expr, $handshake_type:path, $payload_type:path ) => (
     match &$m.payload {
@@ -56,7 +57,7 @@ pub(crate) fn inappropriate_message(
     }
 }
 
-pub(crate) fn inappropriate_handshake_message(
+pub fn inappropriate_handshake_message(
     payload: &MessagePayload,
     content_types: &[ContentType],
     handshake_types: &[HandshakeType],

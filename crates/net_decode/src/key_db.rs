@@ -22,6 +22,7 @@ impl fmt::Debug for Hex<'_> {
     }
 }
 
+/// To avoid any unintended coupling to rustls, we use our own type for this.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ClientRandom(Vec<u8>);
 
@@ -31,8 +32,14 @@ impl fmt::Debug for ClientRandom {
     }
 }
 
+impl From<rustls_intercept::internal::msgs::handshake::Random> for ClientRandom {
+    fn from(value: rustls_intercept::internal::msgs::handshake::Random) -> Self {
+        Self(value.0.into())
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
-pub struct Secret(Vec<u8>);
+pub struct Secret(pub Vec<u8>);
 
 impl fmt::Debug for Secret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -78,6 +85,17 @@ pub struct KeyDB {
 }
 
 impl KeyDB {
+    pub fn lookup_secret(&self, client_random: &ClientRandom, typ: SecretType) -> Option<Secret> {
+        self.keys
+            .get(client_random)
+            .and_then(|sess| {
+                sess.keys
+                    .iter()
+                    .find_map(|(t, k)| if *t == typ { Some(k) } else { None })
+            })
+            .cloned()
+    }
+
     pub fn load_key_log(&mut self, key_log: &[u8]) {
         let do_line = |line: &[u8]| -> Result<_, Box<dyn std::error::Error>> {
             if line.starts_with(b"#") {

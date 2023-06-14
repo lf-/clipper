@@ -24,8 +24,8 @@ use crate::vecbuf::ChunkVecBuffer;
 pub struct CommonState {
     pub(crate) negotiated_version: Option<ProtocolVersion>,
     pub(crate) side: Side,
-    pub(crate) record_layer: record_layer::RecordLayer,
-    pub(crate) suite: Option<SupportedCipherSuite>,
+    pub record_layer: record_layer::RecordLayer,
+    pub suite: Option<SupportedCipherSuite>,
     pub(crate) alpn_protocol: Option<Vec<u8>>,
     pub(crate) aligned_handshake: bool,
     pub(crate) may_send_application_data: bool,
@@ -53,7 +53,7 @@ pub struct CommonState {
 }
 
 impl CommonState {
-    pub(crate) fn new(side: Side) -> Self {
+    pub fn new(side: Side) -> Self {
         Self {
             negotiated_version: None,
             side,
