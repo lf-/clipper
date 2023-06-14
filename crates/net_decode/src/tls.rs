@@ -369,41 +369,52 @@ impl TCPFlowReceiver for TLSFlowTracker {
 
         side.read_buffer.extend(&data);
         side.deframer.read(&mut side.read_buffer).unwrap();
-        let msg = side.deframe();
-        match msg {
-            Ok(Some(v)) => {
-                let msg = Message::try_from(v);
-                if let Ok(msg) = msg {
-                    tracing::debug!("msg {:?} to_client={to_client}: {:?}", &entry.state, &msg);
-                    let state = std::mem::replace(&mut entry.state, Box::new(Failed {}));
-                    let lock = self.key_db.read().unwrap();
 
-                    let new_state = state.drive(
-                        &mut entry,
-                        to_client,
-                        msg,
-                        CommonData {
-                            key_db: &*lock,
-                            next: &mut |to_client, data| {
-                                self.next.on_data(target, to_client, data);
+        loop {
+            // repeated due to borrowck
+            let side = if to_client {
+                &mut entry.client
+            } else {
+                &mut entry.server
+            };
+            let msg = side.deframe();
+
+            match msg {
+                Ok(Some(v)) => {
+                    let msg = Message::try_from(v);
+                    if let Ok(msg) = msg {
+                        tracing::debug!("msg {:?} to_client={to_client}: {:?}", &entry.state, &msg);
+                        let state = std::mem::replace(&mut entry.state, Box::new(Failed {}));
+                        let lock = self.key_db.read().unwrap();
+
+                        let new_state = state.drive(
+                            &mut entry,
+                            to_client,
+                            msg,
+                            CommonData {
+                                key_db: &*lock,
+                                next: &mut |to_client, data| {
+                                    self.next.on_data(target, to_client, data);
+                                },
                             },
-                        },
-                    );
+                        );
 
-                    match new_state {
-                        Ok(s) => entry.state = s,
-                        Err(e) => {
-                            tracing::warn!("failed while processing tls connection: {e}");
-                            return;
+                        match new_state {
+                            Ok(s) => entry.state = s,
+                            Err(e) => {
+                                tracing::warn!("failed while processing tls connection: {e}");
+                                return;
+                            }
                         }
                     }
                 }
+                Ok(None) => {
+                    // Nothing to do, we just have to read more data to get more
+                    // frames
+                    break;
+                }
+                Err(e) => tracing::warn!("error deframing tls: {e}"),
             }
-            Ok(None) => {
-                // Nothing to do, we just have to read more data to get more
-                // frames
-            }
-            Err(e) => tracing::warn!("error deframing tls: {e}"),
         }
     }
 }
