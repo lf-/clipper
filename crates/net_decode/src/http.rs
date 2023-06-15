@@ -5,11 +5,43 @@
 //! - How do we do connection reuse properly? We should transition out of Body
 //!   to RecvHeaders, probably, and clear the request?
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
-use http::{HeaderMap, HeaderName, HeaderValue};
+use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 
 use crate::{chomp::IPTarget, listener::Listener};
+
+type RequestId = u64;
+
+pub enum HTTPStreamEvent {
+    NewRequest(RequestId, http::request::Parts),
+    ReqBodyChunk(RequestId, Vec<u8>),
+    NewResponse(RequestId, http::response::Parts),
+    RespBodyChunk(RequestId, Vec<u8>),
+}
+
+impl fmt::Debug for HTTPStreamEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NewRequest(id, parts) => {
+                f.debug_tuple("NewRequest").field(id).field(parts).finish()
+            }
+            Self::ReqBodyChunk(id, chunk) => f
+                .debug_struct("ReqBodyChunk")
+                .field("id", id)
+                .field("len", &chunk.len())
+                .finish(),
+            Self::NewResponse(id, parts) => {
+                f.debug_tuple("NewResponse").field(id).field(parts).finish()
+            }
+            Self::RespBodyChunk(id, chunk) => f
+                .debug_struct("RespBodyChunk")
+                .field("id", id)
+                .field("len", &chunk.len())
+                .finish(),
+        }
+    }
+}
 
 const MAX_HEADERS: usize = 100;
 
@@ -26,180 +58,322 @@ impl Default for HTTP1ParserState {
     }
 }
 
+struct OnwardData<'a> {
+    target: IPTarget,
+    new_request_id: &'a mut dyn FnMut() -> RequestId,
+    next: &'a mut dyn Listener<HTTPStreamEvent>,
+}
+
 #[derive(Default)]
 pub struct HTTP1Flow {
+    request_id: RequestId,
     client_state: HTTP1ParserState,
     server_state: HTTP1ParserState,
     // FIXME: technically with malicious input this could waste unbounded
     // memory. maybe we should give up after a while?
     // FIXME: streaming misery
-    req: http::Request<Vec<u8>>,
-    resp: http::Response<Vec<u8>>,
+    req_buf: Vec<u8>,
+    req_remain: usize,
+    resp_buf: Vec<u8>,
+    resp_remain: usize,
 }
 
-fn handle_http_parse_result(
-    body_start: httparse::Result<usize>,
-    headers: &[httparse::Header<'_>],
-    header_map: &mut HeaderMap,
-    state: &mut HTTP1ParserState,
-) -> Result<usize, ()> {
-    match body_start {
-        Ok(httparse::Status::Partial) => {
-            // we just need to get more data. it has been buffered, try
-            // again next time
-            Err(())
+fn to_header_map(headers: &[httparse::Header<'_>]) -> HeaderMap {
+    let mut header_map = HeaderMap::new();
+    for h in headers {
+        if *h == httparse::EMPTY_HEADER {
+            // XXX: surely there is a way to actually find the end of
+            // this?
+            break;
         }
-        Ok(httparse::Status::Complete(body_start)) => {
-            for h in headers {
-                if *h == httparse::EMPTY_HEADER {
-                    // XXX: surely there is a way to actually find the end of
-                    // this?
-                    break;
+        header_map.append(
+            match HeaderName::from_bytes(h.name.as_bytes()) {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::debug!("invalid http header {err}");
+                    continue;
                 }
-                header_map.append(
-                    match HeaderName::from_bytes(h.name.as_bytes()) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            tracing::debug!("invalid http header {err}");
-                            continue;
-                        }
-                    },
-                    match HeaderValue::try_from(h.value) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            tracing::debug!("invalid http header value: {err}");
-                            continue;
-                        }
-                    },
-                );
-            }
-            *state = HTTP1ParserState::Body;
-            Ok(body_start)
-        }
-        Err(err) => {
-            tracing::debug!("bad http request: {err}");
-            *state = HTTP1ParserState::Error;
-            Err(())
-        }
+            },
+            match HeaderValue::try_from(h.value) {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::debug!("invalid http header value: {err}");
+                    continue;
+                }
+            },
+        );
     }
+    header_map
+}
+
+#[derive(Debug, thiserror::Error)]
+enum HTTPParseError {
+    #[error("bad http version 1.{0}")]
+    BadVersion(u8),
+    #[error("bad uri: {0}")]
+    BadUri(#[from] http::uri::InvalidUri),
+    #[error("bad method: {0}")]
+    InvalidMethod(#[from] http::method::InvalidMethod),
+    #[error("invalid status code: {0}")]
+    InvalidStatusCode(#[from] http::status::InvalidStatusCode),
+    #[error("failed to parse request: {0}")]
+    ParseFailed(#[from] httparse::Error),
+}
+
+// the constructor is private
+fn new_req_parts() -> http::request::Parts {
+    http::Request::new(()).into_parts().0
+}
+
+fn new_resp_parts() -> http::response::Parts {
+    http::Response::new(()).into_parts().0
+}
+
+fn decode_http1_version(v: u8) -> Result<http::Version, HTTPParseError> {
+    Ok(match v {
+        0 => http::Version::HTTP_10,
+        1 => http::Version::HTTP_11,
+        v => return Err(HTTPParseError::BadVersion(v)),
+    })
+}
+
+fn content_length(hm: &HeaderMap) -> usize {
+    hm.get(CONTENT_LENGTH)
+        .and_then(|v| usize::from_str_radix(v.to_str().ok()?, 10).ok())
+        .unwrap_or(0)
 }
 
 impl HTTP1Flow {
-    fn do_server_recv_headers(&mut self, data: Vec<u8>) {
-        let mut buf = Vec::new();
-        std::mem::swap(&mut buf, self.req.body_mut());
+    fn new(request_id: RequestId) -> Self {
+        Self {
+            request_id,
+            ..Self::default()
+        }
+    }
+
+    // FIXME: a bunch of repeated code
+    fn do_server_recv_headers(
+        &mut self,
+        data: &[u8],
+        next: OnwardData<'_>,
+    ) -> Result<usize, HTTPParseError> {
+        let buf = &mut self.req_buf;
+        let remain = &mut self.req_remain;
+        let state = &mut self.server_state;
+        let to_client = false;
+
         buf.extend_from_slice(&data);
 
         let mut headers = Vec::new();
         headers.resize(MAX_HEADERS, httparse::EMPTY_HEADER);
 
-        let body_start = {
-            let mut request = httparse::Request::new(&mut headers);
-            request.parse(&buf)
-        };
+        let mut request = httparse::Request::new(&mut headers);
+        let body_start = request.parse(&buf);
 
-        let r = handle_http_parse_result(
-            body_start,
-            &headers,
-            &mut self.req.headers_mut(),
-            &mut self.server_state,
-        );
-
-        std::mem::swap(&mut buf, self.req.body_mut());
-        match r {
-            Ok(body_start) => {
-                let b = self.req.body_mut();
-                *b = b[body_start..].to_vec();
-                self.stream_body(false)
+        match body_start {
+            Ok(httparse::Status::Partial) => {
+                // we just need to get more data. it has been buffered, try
+                // again next time
+                return Ok(0);
             }
-            Err(()) => {}
+            Ok(httparse::Status::Complete(body_start)) => {
+                let mut parts = new_req_parts();
+                parts.method = http::Method::from_bytes(request.method.unwrap().as_bytes())?;
+                parts.uri = request.path.unwrap().parse::<http::Uri>()?;
+                parts.version = decode_http1_version(request.version.unwrap())?;
+                parts.headers = to_header_map(&headers);
+                parts.extensions = http::Extensions::new();
+
+                let content_length = content_length(&parts.headers);
+                *remain = content_length;
+
+                next.next.on_data(
+                    next.target,
+                    false,
+                    HTTPStreamEvent::NewRequest(self.request_id, parts),
+                );
+
+                *state = HTTP1ParserState::Body;
+                let data = buf[body_start..].to_vec();
+                buf.clear();
+                Ok(body_start + self.stream_body(to_client, data, next))
+            }
+            Err(err) => {
+                tracing::debug!("bad http request: {err}");
+                Err(err.into())
+            }
         }
     }
 
-    fn do_client_recv_headers(&mut self, data: Vec<u8>) {
-        let mut buf = Vec::new();
-        std::mem::swap(&mut buf, self.resp.body_mut());
+    fn do_client_recv_headers(
+        &mut self,
+        data: &[u8],
+        next: OnwardData<'_>,
+    ) -> Result<usize, HTTPParseError> {
+        let buf = &mut self.resp_buf;
+        let remain = &mut self.resp_remain;
+        let state = &mut self.client_state;
+        let to_client = true;
+
         buf.extend_from_slice(&data);
 
         let mut headers = Vec::new();
         headers.resize(MAX_HEADERS, httparse::EMPTY_HEADER);
 
-        let body_start = {
-            let mut response = httparse::Response::new(&mut headers);
-            response.parse(&buf)
-        };
+        let mut response = httparse::Response::new(&mut headers);
+        let body_start = response.parse(&buf);
 
-        let r = handle_http_parse_result(
-            body_start,
-            &headers,
-            &mut self.resp.headers_mut(),
-            &mut self.client_state,
-        );
-
-        std::mem::swap(&mut buf, self.resp.body_mut());
-        match r {
-            Ok(body_start) => {
-                let b = self.resp.body_mut();
-                *b = b[body_start..].to_vec();
-                self.stream_body(true)
+        match body_start {
+            Ok(httparse::Status::Partial) => {
+                // we just need to get more data. it has been buffered, try
+                // again next time
+                return Ok(0);
             }
-            Err(()) => {}
+            Ok(httparse::Status::Complete(body_start)) => {
+                let mut parts = new_resp_parts();
+                parts.status = http::StatusCode::from_u16(response.code.unwrap())?;
+                parts.version = decode_http1_version(response.version.unwrap())?;
+                parts.headers = to_header_map(&headers);
+                parts.extensions = http::Extensions::new();
+
+                let content_length = content_length(&parts.headers);
+                *remain = content_length;
+
+                next.next.on_data(
+                    next.target,
+                    true,
+                    HTTPStreamEvent::NewResponse(self.request_id, parts),
+                );
+
+                *state = HTTP1ParserState::Body;
+                let data = buf[body_start..].to_vec();
+                buf.clear();
+                Ok(body_start + self.stream_body(to_client, data, next))
+            }
+            Err(err) => Err(err.into()),
         }
     }
 
-    fn stream_body(&mut self, to_client: bool) {
-        let buf = if to_client {
-            self.resp.body_mut()
-        } else {
-            self.req.body_mut()
-        };
-
+    fn stream_body(&mut self, to_client: bool, chunk: Vec<u8>, next: OnwardData<'_>) -> usize {
         tracing::debug!(
             "body to_client={to_client}:\n{}",
-            hexdump::HexDumper::new(&buf)
+            hexdump::HexDumper::new(&chunk)
         );
 
-        let headers = if to_client {
-            self.resp.headers()
+        let len = chunk.len();
+
+        let (remain, msg) = if to_client {
+            (
+                &mut self.resp_remain,
+                HTTPStreamEvent::RespBodyChunk(self.request_id, chunk),
+            )
         } else {
-            self.req.headers()
+            (
+                &mut self.req_remain,
+                HTTPStreamEvent::ReqBodyChunk(self.request_id, chunk),
+            )
         };
-        tracing::debug!("headers to_client={to_client}\n{:?}", headers);
+        let to_consume = len.min(*remain);
+        *remain -= to_consume;
+
+        next.next.on_data(next.target, to_client, msg);
+
+        // end of response, next request is a new one in the same
+        // flow/connection
+        if *remain == 0 && to_client {
+            let new = Self::new((next.new_request_id)());
+            let _ = std::mem::replace(self, new);
+        }
+
+        to_consume
     }
 }
 
-#[derive(Default)]
 pub struct HTTPRequestTracker {
+    request_id: RequestId,
     flows: HashMap<IPTarget, HTTP1Flow>,
+    next: Box<dyn Listener<HTTPStreamEvent>>,
+}
+
+impl HTTPRequestTracker {
+    pub fn new(next: Box<dyn Listener<HTTPStreamEvent>>) -> Self {
+        HTTPRequestTracker {
+            request_id: 0,
+            flows: Default::default(),
+            next,
+        }
+    }
 }
 
 impl Listener<Vec<u8>> for HTTPRequestTracker {
-    fn on_data(&mut self, target: crate::chomp::IPTarget, to_client: bool, data: Vec<u8>) {
-        let entry = self.flows.entry(target).or_insert_with(Default::default);
+    fn on_data(&mut self, target: crate::chomp::IPTarget, to_client: bool, mut data: Vec<u8>) {
+        let mut new_request_id = || {
+            let i = self.request_id;
+            self.request_id += 1;
+            i
+        };
+
+        let entry = self.flows.entry(target).or_insert_with(|| HTTP1Flow {
+            request_id: new_request_id(),
+            ..Default::default()
+        });
         // tracing::debug!(
         //     "data to_client={to_client}:\n{}",
         //     hexdump::HexDumper::new(&data)
         // );
 
         tracing::debug!(?entry.client_state, ?entry.server_state);
-        let side_state = if to_client {
-            entry.client_state
-        } else {
-            entry.server_state
-        };
 
-        match (to_client, side_state) {
-            (false, HTTP1ParserState::RecvHeaders) => entry.do_server_recv_headers(data),
-            (false, HTTP1ParserState::Body) => {
-                entry.req.body_mut().extend_from_slice(&data);
-                entry.stream_body(to_client);
-            }
-            (true, HTTP1ParserState::RecvHeaders) => entry.do_client_recv_headers(data),
-            (true, HTTP1ParserState::Body) => {
-                entry.resp.body_mut().extend_from_slice(&data);
-                entry.stream_body(to_client);
-            }
-            (_, HTTP1ParserState::Error) => return,
+        while data.len() > 0 {
+            let onward = OnwardData {
+                target,
+                new_request_id: &mut new_request_id,
+                next: &mut *self.next,
+            };
+
+            let side_state = if to_client {
+                entry.client_state
+            } else {
+                entry.server_state
+            };
+
+            let eaten = match (to_client, side_state) {
+                (false, HTTP1ParserState::RecvHeaders) => {
+                    match entry.do_server_recv_headers(&data, onward) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                "request_id={} error parsing http request: {e}",
+                                entry.request_id
+                            );
+                            entry.server_state = HTTP1ParserState::Error;
+                            0
+                        }
+                    }
+                }
+                (false, HTTP1ParserState::Body) => {
+                    entry.stream_body(to_client, data.clone(), onward)
+                }
+                (true, HTTP1ParserState::RecvHeaders) => {
+                    match entry.do_client_recv_headers(&data, onward) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                "request_id={} error parsing http response: {e}",
+                                entry.request_id
+                            );
+                            entry.client_state = HTTP1ParserState::Error;
+                            0
+                        }
+                    }
+                }
+                (true, HTTP1ParserState::Body) => {
+                    entry.stream_body(to_client, data.clone(), onward)
+                }
+                (_, HTTP1ParserState::Error) => return,
+            };
+
+            data = data[eaten..].to_vec();
         }
     }
 }

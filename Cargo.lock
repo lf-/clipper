@@ -882,6 +882,7 @@ dependencies = [
  "pktparse",
  "proptest",
  "rustls-intercept",
+ "thiserror",
  "tracing",
 ]
 

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::chomp::IPTarget;
 
 /// Type which receives some kind of messages from a layer up the stack.
@@ -10,8 +12,8 @@ pub trait Listener<MessageType> {
 #[derive(Debug, Default)]
 pub struct NoOpListener {}
 
-impl Listener<Vec<u8>> for NoOpListener {
-    fn on_data(&mut self, _target: IPTarget, _to_client: bool, _data: Vec<u8>) {
+impl<T> Listener<T> for NoOpListener {
+    fn on_data(&mut self, _target: IPTarget, _to_client: bool, _data: T) {
         // do nothing! :D
     }
 }
@@ -22,8 +24,17 @@ pub struct HexDumpListener {}
 impl Listener<Vec<u8>> for HexDumpListener {
     fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>) {
         tracing::info!(
-            "tcp {target:?} to_client={to_client}:\n{}",
+            "data {target:?} to_client={to_client}:\n{}",
             hexdump::HexDumper::new(&data)
         );
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DebugListener {}
+
+impl<T: fmt::Debug> Listener<T> for DebugListener {
+    fn on_data(&mut self, target: IPTarget, to_client: bool, data: T) {
+        tracing::info!("data {target:?} to_client={to_client}: {data:?}");
     }
 }

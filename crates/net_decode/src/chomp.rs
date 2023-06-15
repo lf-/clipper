@@ -1,6 +1,10 @@
 use crate::{
-    http::HTTPRequestTracker, key_db::KeyDB, listener::Listener, tcp_reassemble::TcpFollower,
-    tls::TLSFlowTracker, Error,
+    http::HTTPRequestTracker,
+    key_db::KeyDB,
+    listener::{DebugListener, Listener, NoOpListener},
+    tcp_reassemble::TcpFollower,
+    tls::TLSFlowTracker,
+    Error,
 };
 use pcap_parser::{
     traits::{PcapNGPacketBlock, PcapReaderIterator},
@@ -182,7 +186,10 @@ pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
     let key_db = Arc::new(RwLock::new(KeyDB::default()));
     let mut chomper = PacketChomper {
         tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::new(key_db.clone(), Box::new(HTTPRequestTracker::default())),
+        recv: TLSFlowTracker::new(
+            key_db.clone(),
+            Box::new(HTTPRequestTracker::new(Box::new(DebugListener {}))),
+        ),
     };
 
     let mut packet_count = 1u64;

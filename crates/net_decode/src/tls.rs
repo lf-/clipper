@@ -15,19 +15,15 @@ use std::{
 
 use rustls_intercept::{
     internal::{
-        check,
         key_schedule::{KeyScheduleHandshake, KeyScheduleTraffic},
         msgs::{
             deframer::{Deframed, MessageDeframer},
-            handshake::{ClientHelloPayload, HandshakeMessagePayload, HandshakePayload},
+            handshake::{HandshakeMessagePayload, HandshakePayload},
             message::{Message, MessagePayload, PlainMessage},
         },
-        record_layer::RecordLayer,
     },
-    require_handshake_msg,
-    server::Accepted,
-    CommonState, ContentType, Error as RustlsError, HandshakeType, Side, SupportedCipherSuite,
-    Tls13CipherSuite, ALL_CIPHER_SUITES,
+    require_handshake_msg, CommonState, Error as RustlsError, HandshakeType, Side,
+    SupportedCipherSuite, Tls13CipherSuite, ALL_CIPHER_SUITES,
 };
 
 use crate::{
