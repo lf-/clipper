@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use http::{HeaderMap, HeaderName, HeaderValue};
 
-use crate::{chomp::IPTarget, tcp_reassemble::TCPFlowReceiver};
+use crate::{chomp::IPTarget, listener::Listener};
 
 const MAX_HEADERS: usize = 100;
 
@@ -173,7 +173,7 @@ pub struct HTTPRequestTracker {
     flows: HashMap<IPTarget, HTTP1Flow>,
 }
 
-impl TCPFlowReceiver for HTTPRequestTracker {
+impl Listener<Vec<u8>> for HTTPRequestTracker {
     fn on_data(&mut self, target: crate::chomp::IPTarget, to_client: bool, data: Vec<u8>) {
         let entry = self.flows.entry(target).or_insert_with(Default::default);
         // tracing::debug!(

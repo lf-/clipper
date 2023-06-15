@@ -9,7 +9,7 @@ use std::{
     ops::Bound,
 };
 
-use crate::{chomp::IPHeader, chomp::IPTarget, Error};
+use crate::{chomp::IPHeader, chomp::IPTarget, listener::Listener, Error};
 
 /// https://datatracker.ietf.org/doc/html/rfc9293#name-state-machine-overview
 #[allow(unused)]
@@ -279,33 +279,6 @@ pub struct TCPFlow {
     pub server: TCPSide,
 }
 
-pub trait TCPFlowReceiver {
-    // FIXME: should this be modified to include a downstream function in its
-    // signature?
-    fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>);
-}
-
-#[derive(Debug, Default)]
-pub struct NoOpTCPFlowReceiver {}
-
-impl TCPFlowReceiver for NoOpTCPFlowReceiver {
-    fn on_data(&mut self, _target: IPTarget, _to_client: bool, _data: Vec<u8>) {
-        // do nothing! :D
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct HexDumpTCPFlowReceiver {}
-
-impl TCPFlowReceiver for HexDumpTCPFlowReceiver {
-    fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>) {
-        tracing::info!(
-            "tcp {target:?} to_client={to_client}:\n{}",
-            hexdump::HexDumper::new(&data)
-        );
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct TcpFollower {
     /// Drives a TCP state machine based on the data received on a given side.
@@ -339,7 +312,7 @@ impl TcpFollower {
         target: &IPTarget,
         tcp: &TcpHeader,
         data: &[u8],
-        recv: &mut dyn TCPFlowReceiver,
+        recv: &mut dyn Listener<Vec<u8>>,
     ) -> Result<(), Error> {
         let received_by_client = self.flows.contains_key(&target.flip());
         let entry_key = if received_by_client {
@@ -445,7 +418,7 @@ impl TcpFollower {
         &mut self,
         ip_header: IPHeader,
         data: &[u8],
-        recv: &mut dyn TCPFlowReceiver,
+        recv: &mut dyn Listener<Vec<u8>>,
     ) -> Result<(), Error> {
         let proto = ip_header.proto();
         match proto {

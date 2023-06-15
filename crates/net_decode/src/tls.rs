@@ -33,7 +33,7 @@ use rustls_intercept::{
 use crate::{
     chomp::IPTarget,
     key_db::{ClientRandom, KeyDB, SecretType},
-    tcp_reassemble::TCPFlowReceiver,
+    listener::Listener,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -332,15 +332,15 @@ impl Default for TLSFlow {
 pub struct TLSFlowTracker {
     flows: HashMap<IPTarget, TLSFlow>,
     // XXX: This is here because there is not an obvious way to stuff a
-    // reference to changing data into a TCPFlowReceiver without either making
+    // reference to changing data into a Listener<Vec<u8>> without either making
     // everyone receive that data (tbh, probably fine, but annoying) or doing
     // this.
     key_db: Arc<RwLock<KeyDB>>,
-    next: Box<dyn TCPFlowReceiver>,
+    next: Box<dyn Listener<Vec<u8>>>,
 }
 
 impl TLSFlowTracker {
-    pub fn new(key_db: Arc<RwLock<KeyDB>>, next: Box<dyn TCPFlowReceiver>) -> TLSFlowTracker {
+    pub fn new(key_db: Arc<RwLock<KeyDB>>, next: Box<dyn Listener<Vec<u8>>>) -> TLSFlowTracker {
         TLSFlowTracker {
             flows: Default::default(),
             key_db,
@@ -353,7 +353,7 @@ fn is_tls(target: &IPTarget) -> bool {
     target.server_port() == 443
 }
 
-impl TCPFlowReceiver for TLSFlowTracker {
+impl Listener<Vec<u8>> for TLSFlowTracker {
     fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>) {
         if !is_tls(&target) {
             return;

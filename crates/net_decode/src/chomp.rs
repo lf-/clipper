@@ -1,9 +1,6 @@
 use crate::{
-    http::HTTPRequestTracker,
-    key_db::KeyDB,
-    tcp_reassemble::{HexDumpTCPFlowReceiver, NoOpTCPFlowReceiver, TCPFlowReceiver, TcpFollower},
-    tls::TLSFlowTracker,
-    Error,
+    http::HTTPRequestTracker, key_db::KeyDB, listener::Listener, tcp_reassemble::TcpFollower,
+    tls::TLSFlowTracker, Error,
 };
 use pcap_parser::{
     traits::{PcapNGPacketBlock, PcapReaderIterator},
@@ -129,12 +126,12 @@ impl IPTarget {
     }
 }
 
-struct PacketChomper<Recv: TCPFlowReceiver> {
+struct PacketChomper<Recv: Listener<Vec<u8>>> {
     pub tcp_follower: TcpFollower,
     recv: Recv,
 }
 
-impl<Recv: TCPFlowReceiver> PacketChomper<Recv> {
+impl<Recv: Listener<Vec<u8>>> PacketChomper<Recv> {
     fn chomp(&mut self, packet: &[u8]) -> Result<(), Error> {
         if let Ok((remain, frame)) = pktparse::ethernet::parse_ethernet_frame(&packet) {
             // tracing::debug!("frame! {:?}", &frame);
