@@ -280,6 +280,8 @@ pub struct TCPFlow {
 }
 
 pub trait TCPFlowReceiver {
+    // FIXME: should this be modified to include a downstream function in its
+    // signature?
     fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>);
 }
 

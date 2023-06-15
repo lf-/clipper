@@ -125,10 +125,10 @@ impl<'a> HookService<'a> {
         &mut self,
         fun: NativePointer,
         redirect_to: NativePointer,
-    ) -> Result<(), HookError> {
-        self.interceptor
-            .replace(fun, redirect_to, NativePointer(ptr::null_mut()))?;
-        Ok(())
+    ) -> Result<NativePointer, HookError> {
+        Ok(self
+            .interceptor
+            .replace(fun, redirect_to, NativePointer(ptr::null_mut()))?)
     }
 }
 

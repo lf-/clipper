@@ -6,8 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+h2 = { version = "0.3.19", features = ["stream"] }
 hex = "0.4.3"
 hexdump = { version = "0.1.0", path = "../hexdump" }
+http = "0.2.9"
+httparse = "1.8.0"
 pcap-parser = "0.14.0"
 pktparse = "0.7.1"
 rustls-intercept = { version = "0.21.1", path = "../../rustls-intercept/rustls" }

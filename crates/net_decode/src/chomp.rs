@@ -1,4 +1,5 @@
 use crate::{
+    http::HTTPRequestTracker,
     key_db::KeyDB,
     tcp_reassemble::{HexDumpTCPFlowReceiver, NoOpTCPFlowReceiver, TCPFlowReceiver, TcpFollower},
     tls::TLSFlowTracker,
@@ -184,7 +185,7 @@ pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
     let key_db = Arc::new(RwLock::new(KeyDB::default()));
     let mut chomper = PacketChomper {
         tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::new(key_db.clone(), Box::new(HexDumpTCPFlowReceiver {})),
+        recv: TLSFlowTracker::new(key_db.clone(), Box::new(HTTPRequestTracker::default())),
     };
 
     let mut packet_count = 1u64;

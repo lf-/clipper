@@ -59,7 +59,7 @@ libraries using Frida GUM:
 It can then send the keys onwards. Planned ways to send them onwards:
 
 - [x] Print to stdout
-- [ ] Implement SSLKEYLOGFILE
+- [x] Implement SSLKEYLOGFILE
 - [ ] Send to clipper service over an IPC socket
 
 Inspired by [openssl-keylog] and [mirrord-layer] ([blog
@@ -69,6 +69,25 @@ post][mirrord-blogpost]).
 [openssl-keylog]: https://github.com/wpbrown/openssl-keylog
 [mirrord-layer]: https://github.com/metalbear-co/mirrord/tree/main/mirrord/layer
 [mirrord-blogpost]: https://metalbear.co/blog/mirrord-internals-hooking-libc-functions-in-rust-and-fixing-bugs/
+
+### clipper_dump
+
+`clipper_dump` is a debugging tool for our underlying TLS, TCP, and HTTP
+libraries. It allows dumping pcaps and running them through our network
+protocol implementations to validate them. It will likely have other
+functionality in the future related to this goal.
+
+FIXME: use similar techniques for automated snapshot testing: take a pcap and
+turn it into logs.
+
+FIXME: should this actually be a subcommand of `clipper`? How should the CLI
+evolve?
+
+Example usage:
+
+```
+RUST_LOG=net_decode::tcp_reassemble=info,debug cargo run -p clipper_dump -- dump-pcap corpus/nya-dsb.pcapng
+```
 
 ### Implementation notes: packet capture
 
