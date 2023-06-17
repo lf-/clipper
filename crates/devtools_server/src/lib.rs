@@ -104,6 +104,19 @@ impl ServerConnection {
         .await
     }
 
+    pub async fn send_event(
+        &mut self,
+        ev: impl cdp_types::Method + serde::ser::Serialize,
+    ) -> Result<(), Error> {
+        let ev = cdp_types::Message::Event(cdp_types::CdpJsonEventMessage {
+            method: ev.identifier(),
+            session_id: None,
+            params: serde_json::to_value(ev)?,
+        });
+        self.send(ev).await?;
+        Ok(())
+    }
+
     pub async fn send(&mut self, response: chromiumoxide_types::Message) -> Result<(), Error> {
         let text = serde_json::to_vec(&response)?;
 
