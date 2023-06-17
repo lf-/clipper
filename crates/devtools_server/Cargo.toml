@@ -1,0 +1,17 @@
+[package]
+name = "devtools_server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chromiumoxide_cdp = "0.5.0"
+chromiumoxide_types = "0.5.0"
+futures = "0.3.28"
+hexdump = { version = "0.1.0", path = "../hexdump" }
+serde = "1.0.164"
+serde_json = "1.0.97"
+tokio = { version = "1.28.2", features = ["rt"] }
+tokio-tungstenite = "0.19.0"
+tracing = "0.1.37"

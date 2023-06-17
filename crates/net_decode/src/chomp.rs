@@ -1,11 +1,4 @@
-use crate::{
-    http::HTTPRequestTracker,
-    key_db::KeyDB,
-    listener::{DebugListener, Listener, NoOpListener},
-    tcp_reassemble::TcpFollower,
-    tls::TLSFlowTracker,
-    Error,
-};
+use crate::{key_db::KeyDB, listener::Listener, tcp_reassemble::TcpFollower, Error};
 use pcap_parser::{
     traits::{PcapNGPacketBlock, PcapReaderIterator},
     PcapError, PcapNGReader,
@@ -130,9 +123,9 @@ impl IPTarget {
     }
 }
 
-struct PacketChomper<Recv: Listener<Vec<u8>>> {
+pub struct PacketChomper<Recv: Listener<Vec<u8>>> {
     pub tcp_follower: TcpFollower,
-    recv: Recv,
+    pub recv: Recv,
 }
 
 impl<Recv: Listener<Vec<u8>>> PacketChomper<Recv> {
@@ -179,18 +172,14 @@ impl<'a> fmt::Display for Show<'a> {
     }
 }
 
-pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
+pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
+    file: PathBuf,
+    chomper: &mut PacketChomper<Recv>,
+    key_db: Arc<RwLock<KeyDB>>,
+) -> Result<(), Error> {
     let contents = std::fs::read(file)?;
 
     let mut pcap = PcapNGReader::new(65536, Cursor::new(contents))?;
-    let key_db = Arc::new(RwLock::new(KeyDB::default()));
-    let mut chomper = PacketChomper {
-        tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::new(
-            key_db.clone(),
-            Box::new(HTTPRequestTracker::new(Box::new(DebugListener {}))),
-        ),
-    };
 
     let mut packet_count = 1u64;
 
@@ -228,15 +217,6 @@ pub fn dump_pcap(file: PathBuf) -> Result<(), Error> {
             }
             Err(e) => panic!("error while parsing pcap {e:?}"),
         }
-    }
-
-    for (flow, data) in chomper.tcp_follower.flows {
-        // TODO
-        // tracing::debug!(
-        //     "flow: {flow:?}, data:\n{}\n{}",
-        //     hexdump::HexDumper::new(&data.server.data),
-        //     hexdump::HexDumper::new(&data.client.data)
-        // );
     }
 
     Ok(())
