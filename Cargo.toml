@@ -1,8 +1,3 @@
 [workspace]
 members = ["clipper_inject", "fixtures/*", "crates/*", "rustls-intercept/rustls", "clipper_dump"]
 resolver = "2"
-
-[patch.crates-io]
-chromiumoxide_cdp = { path = "../chromiumoxide/chromiumoxide_cdp" }
-chromiumoxide_types = { path = "../chromiumoxide/chromiumoxide_types" }
-chromiumoxide_pdl = { path = "../chromiumoxide/chromiumoxide_pdl" }

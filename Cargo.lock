@@ -240,6 +240,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "chromiumoxide_cdp"
 version = "0.5.0"
+source = "git+https://github.com/lf-/chromiumoxide?branch=jade/serialize#028fcc157a56f51f2f200c4acbffdf00fa433765"
 dependencies = [
  "chromiumoxide_pdl",
  "chromiumoxide_types",
@@ -250,6 +251,7 @@ dependencies = [
 [[package]]
 name = "chromiumoxide_pdl"
 version = "0.5.0"
+source = "git+https://github.com/lf-/chromiumoxide?branch=jade/serialize#028fcc157a56f51f2f200c4acbffdf00fa433765"
 dependencies = [
  "chromiumoxide_types",
  "either",
@@ -265,6 +267,7 @@ dependencies = [
 [[package]]
 name = "chromiumoxide_types"
 version = "0.5.0"
+source = "git+https://github.com/lf-/chromiumoxide?branch=jade/serialize#028fcc157a56f51f2f200c4acbffdf00fa433765"
 dependencies = [
  "serde",
  "serde_json",

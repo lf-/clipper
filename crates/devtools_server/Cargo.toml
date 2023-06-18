@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chromiumoxide_cdp = "0.5.0"
-chromiumoxide_types = "0.5.0"
+chromiumoxide_cdp = { git = "https://github.com/lf-/chromiumoxide", branch = "jade/serialize" }
+chromiumoxide_types = { git = "https://github.com/lf-/chromiumoxide", branch = "jade/serialize" }
 futures = "0.3.28"
 hexdump = { version = "0.1.0", path = "../hexdump" }
 serde = "1.0.164"
