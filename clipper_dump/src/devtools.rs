@@ -19,7 +19,11 @@ use devtools_server::{
 use futures::{Stream, StreamExt};
 use http::{header, HeaderMap};
 use net_decode::{
-    chomp, http::HTTPStreamEvent, http::RequestId as NdRequestId, key_db::KeyDB, listener::Listener,
+    chomp,
+    http::HTTPStreamEvent,
+    http::RequestId as NdRequestId,
+    key_db::KeyDB,
+    listener::{Listener, Nanos, TimingInfo},
 };
 use tokio::sync::broadcast;
 
@@ -27,7 +31,7 @@ use crate::{chomper, Error};
 
 #[derive(Debug)]
 pub enum DevtoolsProtoEvent {
-    HTTPStreamEvent(HTTPStreamEvent),
+    HTTPStreamEvent(TimingInfo, HTTPStreamEvent),
 }
 
 /// Structure to buffer events so that new clients will get all the history on
@@ -132,6 +136,14 @@ impl ResponseBodyTracker {
     fn data(&self, request_id: NdRequestId) -> Option<&[u8]> {
         self.requests.get(&request_id).map(|v| v.as_slice())
     }
+}
+
+fn nanos_to_seconds(nanos: Nanos) -> f64 {
+    nanos as f64 / 1_000_000_000.
+}
+
+fn nanos_to_monotonic(nanos: Nanos) -> network::MonotonicTime {
+    network::MonotonicTime::new(nanos_to_seconds(nanos))
 }
 
 struct ClientState {
@@ -249,133 +261,135 @@ impl ClientState {
         tracing::debug!("event {msg:?}");
 
         match msg {
-            DevtoolsProtoEvent::HTTPStreamEvent(hse) => match hse {
-                HTTPStreamEvent::NewRequest(id, parts) => {
-                    let wall_time = chrono::Utc::now().timestamp_millis() as f64 / 1000.;
+            DevtoolsProtoEvent::HTTPStreamEvent(timing, hse) => {
+                let timestamp = nanos_to_monotonic(timing.received_on_wire);
+                match hse {
+                    HTTPStreamEvent::NewRequest(id, parts) => {
+                        let ev = EventRequestWillBeSent {
+                            request_id: network::RequestId::from(id.to_string()),
+                            loader_id: network::LoaderId::from("".to_string()),
+                            document_url: "".to_string(),
+                            request: network::Request {
+                                // TODO: this is missing the domain name, thats fucked
+                                url: parts.uri.to_string(),
+                                method: parts.method.to_string(),
+                                url_fragment: None,
+                                headers: to_cdp_headers(&parts.headers),
+                                // TODO: we take post data in as a separate event, so
+                                // these need coalescing before they go in. gah.
+                                post_data: None,
+                                has_post_data: None,
+                                post_data_entries: None,
+                                mixed_content_type: None,
+                                initial_priority: network::ResourcePriority::Medium,
+                                referrer_policy: network::RequestReferrerPolicy::Origin,
+                                is_link_preload: None,
+                                trust_token_params: None,
+                                is_same_site: None,
+                            },
+                            timestamp,
+                            wall_time: network::TimeSinceEpoch::new(nanos_to_seconds(
+                                timing.received_on_wire,
+                            )),
+                            initiator: network::Initiator {
+                                r#type: network::InitiatorType::Other,
+                                stack: None,
+                                url: None,
+                                line_number: None,
+                                column_number: None,
+                                request_id: None,
+                            },
+                            redirect_has_extra_info: false,
+                            redirect_response: None,
+                            r#type: None,
+                            frame_id: None,
+                            has_user_gesture: None,
+                        };
 
-                    let ev = EventRequestWillBeSent {
-                        request_id: network::RequestId::from(id.to_string()),
-                        loader_id: network::LoaderId::from("".to_string()),
-                        document_url: "".to_string(),
-                        request: network::Request {
-                            // TODO: this is missing the domain name, thats fucked
-                            url: parts.uri.to_string(),
-                            method: parts.method.to_string(),
-                            url_fragment: None,
-                            headers: to_cdp_headers(&parts.headers),
-                            // TODO: we take post data in as a separate event, so
-                            // these need coalescing before they go in. gah.
-                            post_data: None,
-                            has_post_data: None,
-                            post_data_entries: None,
-                            mixed_content_type: None,
-                            initial_priority: network::ResourcePriority::Medium,
-                            referrer_policy: network::RequestReferrerPolicy::Origin,
-                            is_link_preload: None,
-                            trust_token_params: None,
-                            is_same_site: None,
-                        },
-                        // TODO: time info
-                        timestamp: network::MonotonicTime::new(0.),
-                        wall_time: network::TimeSinceEpoch::new(wall_time),
-                        initiator: network::Initiator {
-                            r#type: network::InitiatorType::Other,
-                            stack: None,
-                            url: None,
-                            line_number: None,
-                            column_number: None,
-                            request_id: None,
-                        },
-                        redirect_has_extra_info: false,
-                        redirect_response: None,
-                        r#type: None,
-                        frame_id: None,
-                        has_user_gesture: None,
-                    };
+                        // FIXME: do we actually need to send this event?
+                        // let ev2 = network::EventRequestWillBeSentExtraInfo {
+                        //     request_id: network::RequestId::new(id.to_string()),
+                        //     associated_cookies: Vec::new(),
+                        //     headers: to_cdp_headers(&parts.headers),
+                        //     connect_timing: network::ConnectTiming { request_time: 0. },
+                        //     client_security_state: None,
+                        // };
 
-                    // FIXME: do we actually need to send this event?
-                    // let ev2 = network::EventRequestWillBeSentExtraInfo {
-                    //     request_id: network::RequestId::new(id.to_string()),
-                    //     associated_cookies: Vec::new(),
-                    //     headers: to_cdp_headers(&parts.headers),
-                    //     connect_timing: network::ConnectTiming { request_time: 0. },
-                    //     client_security_state: None,
-                    // };
+                        conn.send_event(ev).await?;
+                        // conn.send_event(ev2).await?;
+                    }
+                    HTTPStreamEvent::NewResponse(id, parts) => {
+                        let ev = network::EventResponseReceived {
+                            request_id: network::RequestId::new(id.to_string()),
+                            loader_id: network::LoaderId::new(""),
+                            timestamp,
+                            r#type: network::ResourceType::Other,
+                            response: network::Response {
+                                url: "".to_string(),
+                                status: parts.status.as_u16() as _,
+                                // FIXME: we have this data
+                                status_text: "".to_string(),
+                                headers: to_cdp_headers(&parts.headers),
+                                // I am not sure if this is right, I imagine that
+                                // mime types have different format to
+                                // Content-Type, but yolo!
+                                mime_type: parts
+                                    .headers
+                                    .get(header::CONTENT_TYPE)
+                                    .and_then(|s| s.to_str().ok())
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(String::new),
+                                // FIXME: do we need these?
+                                request_headers: None,
+                                // FIXME: we can probably find this out
+                                connection_reused: false,
+                                connection_id: 0.,
+                                // FIXME: we definitely have this
+                                remote_ip_address: None,
+                                remote_port: None,
+                                from_disk_cache: None,
+                                from_service_worker: None,
+                                from_prefetch_cache: None,
+                                encoded_data_length: 0.,
+                                timing: None,
+                                service_worker_response_source: None,
+                                response_time: None,
+                                cache_storage_cache_name: None,
+                                protocol: to_chrome_proto_version(parts.version)
+                                    .map(|s| s.to_string()),
+                                security_state: security::SecurityState::Neutral,
+                                security_details: None,
+                            },
+                            has_extra_info: false,
+                            frame_id: None,
+                        };
 
-                    conn.send_event(ev).await?;
-                    // conn.send_event(ev2).await?;
+                        conn.send_event(ev).await?;
+                    }
+                    HTTPStreamEvent::RespBodyChunk(id, data) => {
+                        let ev = network::EventDataReceived {
+                            request_id: network::RequestId::new(id.to_string()),
+                            timestamp,
+                            data_length: data.len() as i64,
+                            encoded_data_length: data.len() as i64,
+                        };
+
+                        conn.send_event(ev).await?;
+                    }
+                    HTTPStreamEvent::ResponseFinished(id, len) => {
+                        let ev = network::EventLoadingFinished {
+                            request_id: network::RequestId::new(id.to_string()),
+                            timestamp,
+                            // wtf, f64
+                            encoded_data_length: *len as f64,
+                            should_report_corb_blocking: None,
+                        };
+
+                        conn.send_event(ev).await?;
+                    }
+                    _ => {}
                 }
-                HTTPStreamEvent::NewResponse(id, parts) => {
-                    let ev = network::EventResponseReceived {
-                        request_id: network::RequestId::new(id.to_string()),
-                        loader_id: network::LoaderId::new(""),
-                        timestamp: network::MonotonicTime::new(0.),
-                        r#type: network::ResourceType::Other,
-                        response: network::Response {
-                            url: "".to_string(),
-                            status: parts.status.as_u16() as _,
-                            // FIXME: we have this data
-                            status_text: "".to_string(),
-                            headers: to_cdp_headers(&parts.headers),
-                            // I am not sure if this is right, I imagine that
-                            // mime types have different format to
-                            // Content-Type, but yolo!
-                            mime_type: parts
-                                .headers
-                                .get(header::CONTENT_TYPE)
-                                .and_then(|s| s.to_str().ok())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(String::new),
-                            // FIXME: do we need these?
-                            request_headers: None,
-                            // FIXME: we can probably find this out
-                            connection_reused: false,
-                            connection_id: 0.,
-                            // FIXME: we definitely have this
-                            remote_ip_address: None,
-                            remote_port: None,
-                            from_disk_cache: None,
-                            from_service_worker: None,
-                            from_prefetch_cache: None,
-                            encoded_data_length: 0.,
-                            timing: None,
-                            service_worker_response_source: None,
-                            response_time: None,
-                            cache_storage_cache_name: None,
-                            protocol: to_chrome_proto_version(parts.version).map(|s| s.to_string()),
-                            security_state: security::SecurityState::Neutral,
-                            security_details: None,
-                        },
-                        has_extra_info: false,
-                        frame_id: None,
-                    };
-
-                    conn.send_event(ev).await?;
-                }
-                HTTPStreamEvent::RespBodyChunk(id, data) => {
-                    let ev = network::EventDataReceived {
-                        request_id: network::RequestId::new(id.to_string()),
-                        // FIXME: time
-                        timestamp: network::MonotonicTime::new(0.),
-                        data_length: data.len() as i64,
-                        encoded_data_length: data.len() as i64,
-                    };
-
-                    conn.send_event(ev).await?;
-                }
-                HTTPStreamEvent::ResponseFinished(id, len) => {
-                    let ev = network::EventLoadingFinished {
-                        request_id: network::RequestId::new(id.to_string()),
-                        timestamp: network::MonotonicTime::new(0.),
-                        // wtf, f64
-                        encoded_data_length: *len as f64,
-                        should_report_corb_blocking: None,
-                    };
-
-                    conn.send_event(ev).await?;
-                }
-                _ => {}
-            },
+            }
         }
         Ok(())
     }
@@ -389,6 +403,7 @@ struct DevtoolsListener {
 impl Listener<HTTPStreamEvent> for DevtoolsListener {
     fn on_data(
         &mut self,
+        timing: TimingInfo,
         _target: net_decode::chomp::IPTarget,
         _to_client: bool,
         data: HTTPStreamEvent,
@@ -399,7 +414,8 @@ impl Listener<HTTPStreamEvent> for DevtoolsListener {
             }
             _ => {}
         }
-        self.send.send(DevtoolsProtoEvent::HTTPStreamEvent(data));
+        self.send
+            .send(DevtoolsProtoEvent::HTTPStreamEvent(timing, data));
     }
 }
 

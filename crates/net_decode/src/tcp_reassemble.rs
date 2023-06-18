@@ -9,7 +9,12 @@ use std::{
     ops::Bound,
 };
 
-use crate::{chomp::IPHeader, chomp::IPTarget, listener::Listener, Error};
+use crate::{
+    chomp::IPHeader,
+    chomp::IPTarget,
+    listener::{Listener, TimingInfo},
+    Error,
+};
 
 /// https://datatracker.ietf.org/doc/html/rfc9293#name-state-machine-overview
 #[allow(unused)]
@@ -309,6 +314,7 @@ impl<'a> Debug for PrintTcpHeader<'a> {
 impl TcpFollower {
     fn record_flow(
         &mut self,
+        timing: TimingInfo,
         target: &IPTarget,
         tcp: &TcpHeader,
         data: &[u8],
@@ -387,6 +393,7 @@ impl TcpFollower {
                 rx_side.reorder_buffer.ingest(
                     (tcp.clone(), data.to_vec()),
                     &mut |(header, bs): (TcpHeader, Vec<u8>)| {
+                        let timing = timing.clone();
                         let new_rcv_next =
                             Wrapping(header.sequence_no) + Wrapping(bs.len().try_into().unwrap());
 
@@ -400,7 +407,7 @@ impl TcpFollower {
                         // throws an assert).
                         rx_side.state_machine.drive_state(&header, |_side| {
                             // they gave us buffer uwu
-                            recv.on_data(entry_key, received_by_client, bs);
+                            recv.on_data(timing, entry_key, received_by_client, bs);
                         });
 
                         rx_side.state_machine.rcv_next = new_rcv_next.0;
@@ -416,6 +423,7 @@ impl TcpFollower {
 
     pub fn chomp(
         &mut self,
+        timing: TimingInfo,
         ip_header: IPHeader,
         data: &[u8],
         recv: &mut dyn Listener<Vec<u8>>,
@@ -425,7 +433,7 @@ impl TcpFollower {
             pktparse::ip::IPProtocol::TCP => {
                 if let Ok((remain, tcp)) = pktparse::tcp::parse_tcp_header(data) {
                     let ip_target = IPTarget::from_headers(&ip_header, &tcp);
-                    self.record_flow(&ip_target, &tcp, remain, recv)?;
+                    self.record_flow(timing, &ip_target, &tcp, remain, recv)?;
                     tracing::debug!("\n{}", hexdump::HexDumper::new(remain));
                 }
             }

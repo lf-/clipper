@@ -7,7 +7,10 @@ use std::{collections::HashMap, fmt};
 
 use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 
-use crate::{chomp::IPTarget, listener::Listener};
+use crate::{
+    chomp::IPTarget,
+    listener::{Listener, TimingInfo},
+};
 
 pub type RequestId = u64;
 
@@ -63,6 +66,7 @@ impl Default for HTTP1ParserState {
 }
 
 struct OnwardData<'a> {
+    timing: TimingInfo,
     target: IPTarget,
     new_request_id: &'a mut dyn FnMut() -> RequestId,
     next: &'a mut dyn Listener<HTTPStreamEvent>,
@@ -198,6 +202,7 @@ impl HTTP1Flow {
                 *remain = content_length;
 
                 next.next.on_data(
+                    next.timing.clone(),
                     next.target,
                     false,
                     HTTPStreamEvent::NewRequest(self.request_id, parts),
@@ -253,6 +258,7 @@ impl HTTP1Flow {
                 *remain = content_length;
 
                 next.next.on_data(
+                    next.timing.clone(),
                     next.target,
                     true,
                     HTTPStreamEvent::NewResponse(self.request_id, parts),
@@ -292,12 +298,14 @@ impl HTTP1Flow {
         *remain -= to_consume;
         *encoded_length += to_consume;
 
-        next.next.on_data(next.target, to_client, msg);
+        next.next
+            .on_data(next.timing.clone(), next.target, to_client, msg);
 
         // end of response, next request is a new one in the same
         // flow/connection
         if *remain == 0 && to_client {
             next.next.on_data(
+                next.timing,
                 next.target,
                 to_client,
                 HTTPStreamEvent::ResponseFinished(self.request_id, *encoded_length),
@@ -327,7 +335,13 @@ impl HTTPRequestTracker {
 }
 
 impl Listener<Vec<u8>> for HTTPRequestTracker {
-    fn on_data(&mut self, target: crate::chomp::IPTarget, to_client: bool, mut data: Vec<u8>) {
+    fn on_data(
+        &mut self,
+        timing: TimingInfo,
+        target: crate::chomp::IPTarget,
+        to_client: bool,
+        mut data: Vec<u8>,
+    ) {
         let mut new_request_id = || {
             let i = self.request_id;
             self.request_id += 1;
@@ -347,6 +361,7 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
 
         while data.len() > 0 {
             let onward = OnwardData {
+                timing: timing.clone(),
                 target,
                 new_request_id: &mut new_request_id,
                 next: &mut *self.next,

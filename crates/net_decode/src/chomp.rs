@@ -1,10 +1,16 @@
-use crate::{key_db::KeyDB, listener::Listener, tcp_reassemble::TcpFollower, Error};
+use crate::{
+    key_db::KeyDB,
+    listener::{Listener, Nanos, TimingInfo},
+    tcp_reassemble::TcpFollower,
+    Error,
+};
 use pcap_parser::{
     traits::{PcapNGPacketBlock, PcapReaderIterator},
-    PcapError, PcapNGReader,
+    InterfaceDescriptionBlock, PcapError, PcapNGReader,
 };
 use pktparse::{ethernet::EtherType, tcp::TcpHeader};
 use std::{
+    collections::BTreeMap,
     fmt::{self, Debug},
     io::Cursor,
     net::{Ipv4Addr, Ipv6Addr},
@@ -129,22 +135,30 @@ pub struct PacketChomper<Recv: Listener<Vec<u8>>> {
 }
 
 impl<Recv: Listener<Vec<u8>>> PacketChomper<Recv> {
-    fn chomp(&mut self, packet: &[u8]) -> Result<(), Error> {
+    fn chomp(&mut self, timing: TimingInfo, packet: &[u8]) -> Result<(), Error> {
         if let Ok((remain, frame)) = pktparse::ethernet::parse_ethernet_frame(&packet) {
             // tracing::debug!("frame! {:?}", &frame);
             match frame.ethertype {
                 EtherType::IPv4 => {
                     if let Ok((remain, pkt)) = pktparse::ipv4::parse_ipv4_header(remain) {
                         // tracing::debug!("ipv4 pakit! {:?}", &pkt);
-                        self.tcp_follower
-                            .chomp(IPHeader::V4(pkt), remain, &mut self.recv)?;
+                        self.tcp_follower.chomp(
+                            timing,
+                            IPHeader::V4(pkt),
+                            remain,
+                            &mut self.recv,
+                        )?;
                     }
                 }
                 EtherType::IPv6 => {
                     if let Ok((remain, pkt)) = pktparse::ipv6::parse_ipv6_header(remain) {
                         tracing::debug!("ipv6 pakit! {:?}", &pkt);
-                        self.tcp_follower
-                            .chomp(IPHeader::V6(pkt), remain, &mut self.recv)?;
+                        self.tcp_follower.chomp(
+                            timing,
+                            IPHeader::V6(pkt),
+                            remain,
+                            &mut self.recv,
+                        )?;
                     }
                 }
                 _ => {
@@ -172,6 +186,52 @@ impl<'a> fmt::Display for Show<'a> {
     }
 }
 
+/// Timestamps in pcapng have resolution dependent on the capture interface.
+/// This is a pain in the ass, but we have to implement it.
+struct InterfaceDescriptor {
+    timestamp_to_nanos: u64,
+}
+
+impl InterfaceDescriptor {
+    fn resolve_timestamp(&self, low: u32, high: u32) -> Nanos {
+        let full = ((high as u64) << 32) | (low as u64);
+
+        full * self.timestamp_to_nanos
+    }
+}
+
+impl From<InterfaceDescriptionBlock<'_>> for InterfaceDescriptor {
+    fn from(value: InterfaceDescriptionBlock) -> Self {
+        const NS_PER_S: u64 = 1_000_000_000;
+        const DEFAULT_RESOLUTION: u64 = 1_000_000;
+        let ticks_per_sec = value.ts_resolution().unwrap_or(DEFAULT_RESOLUTION);
+        let nsec_per_tick = NS_PER_S / ticks_per_sec;
+
+        Self {
+            timestamp_to_nanos: nsec_per_tick,
+        }
+    }
+}
+
+#[derive(Default)]
+struct InterfaceDB {
+    last_seen: u32,
+    interfaces: BTreeMap<u32, InterfaceDescriptor>,
+}
+
+impl InterfaceDB {
+    fn on_interface(&mut self, idb: InterfaceDescriptionBlock) {
+        let id = self.last_seen;
+        self.last_seen += 1;
+
+        self.interfaces.insert(id, idb.into());
+    }
+
+    fn get_interface(&self, id: u32) -> Option<&InterfaceDescriptor> {
+        self.interfaces.get(&id)
+    }
+}
+
 pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
     file: PathBuf,
     chomper: &mut PacketChomper<Recv>,
@@ -182,6 +242,7 @@ pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
     let mut pcap = PcapNGReader::new(65536, Cursor::new(contents))?;
 
     let mut packet_count = 1u64;
+    let mut iface_db = InterfaceDB::default();
 
     loop {
         match pcap.next() {
@@ -191,6 +252,9 @@ pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
                 match block {
                     pcap_parser::PcapBlockOwned::NG(block) => {
                         match block {
+                            pcap_parser::Block::InterfaceDescription(idb) => {
+                                iface_db.on_interface(idb);
+                            }
                             pcap_parser::Block::DecryptionSecrets(dsb) => {
                                 tracing::debug!(
                                     "DSB: {}",
@@ -200,7 +264,26 @@ pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
                                 kdb.load_key_log(&dsb.data[..dsb.secrets_len as usize]);
                             }
                             pcap_parser::Block::EnhancedPacket(epb) => {
-                                chomper.chomp(epb.packet_data()).unwrap();
+                                let iface = match iface_db.get_interface(epb.if_id) {
+                                    Some(v) => v,
+                                    None => {
+                                        tracing::warn!(
+                                            "bad pcap file: interface {} is not defined",
+                                            epb.if_id
+                                        );
+                                        continue;
+                                    }
+                                };
+                                let ts = iface.resolve_timestamp(epb.ts_low, epb.ts_high);
+                                chomper
+                                    .chomp(
+                                        TimingInfo {
+                                            received_on_wire: ts,
+                                            other_times: Default::default(),
+                                        },
+                                        epb.packet_data(),
+                                    )
+                                    .unwrap();
                                 packet_count += 1;
                             }
                             _ => {}

@@ -29,8 +29,12 @@ use rustls_intercept::{
 use crate::{
     chomp::IPTarget,
     key_db::{ClientRandom, KeyDB, SecretType},
-    listener::Listener,
+    listener::{Listener, Nanos, TimingInfo},
 };
+
+pub mod timings {
+    pub struct TlsConnectionStart;
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum TLSDecodeError {
@@ -310,14 +314,16 @@ impl TLSState for WaitForFinish {
 }
 
 struct TLSFlow {
+    start: Nanos,
     server: TLSSide,
     client: TLSSide,
     state: Box<dyn TLSState>,
 }
 
-impl Default for TLSFlow {
-    fn default() -> Self {
+impl TLSFlow {
+    fn new(start_time: Nanos) -> Self {
         Self {
+            start: start_time,
             server: TLSSide::new(Side::Server),
             client: TLSSide::new(Side::Client),
             state: Box::new(ExpectClientHello {}),
@@ -350,12 +356,17 @@ fn is_tls(target: &IPTarget) -> bool {
 }
 
 impl Listener<Vec<u8>> for TLSFlowTracker {
-    fn on_data(&mut self, target: IPTarget, to_client: bool, data: Vec<u8>) {
+    fn on_data(&mut self, timing: TimingInfo, target: IPTarget, to_client: bool, data: Vec<u8>) {
         if !is_tls(&target) {
             return;
         }
 
-        let mut entry = self.flows.entry(target).or_insert_with(Default::default);
+        let mut entry = self
+            .flows
+            .entry(target)
+            .or_insert_with(|| TLSFlow::new(timing.received_on_wire));
+
+        let start = entry.start;
 
         let side = if to_client {
             &mut entry.client
@@ -390,7 +401,12 @@ impl Listener<Vec<u8>> for TLSFlowTracker {
                             CommonData {
                                 key_db: &*lock,
                                 next: &mut |to_client, data| {
-                                    self.next.on_data(target, to_client, data);
+                                    let mut timing = timing.clone();
+                                    timing
+                                        .other_times
+                                        .insert::<timings::TlsConnectionStart>(start);
+
+                                    self.next.on_data(timing, target, to_client, data);
                                 },
                             },
                         );
