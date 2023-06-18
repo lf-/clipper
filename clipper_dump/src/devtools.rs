@@ -1,12 +1,13 @@
 //! Chrome Devtools Protocol implementation, application code
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     path::PathBuf,
     sync::{Arc, RwLock},
     time::Duration,
 };
 
+use base64::Engine;
 use devtools_server::{
     cdp::cdp::browser_protocol::{
         network::{self, EventRequestWillBeSent},
@@ -16,8 +17,10 @@ use devtools_server::{
     ConnectionStream,
 };
 use futures::{Stream, StreamExt};
-use http::HeaderMap;
-use net_decode::{chomp, http::HTTPStreamEvent, key_db::KeyDB, listener::Listener};
+use http::{header, HeaderMap};
+use net_decode::{
+    chomp, http::HTTPStreamEvent, http::RequestId as NdRequestId, key_db::KeyDB, listener::Listener,
+};
 use tokio::sync::broadcast;
 
 use crate::{chomper, Error};
@@ -116,8 +119,24 @@ fn to_chrome_proto_version(ver: http::Version) -> Option<&'static str> {
 }
 
 #[derive(Default)]
+struct ResponseBodyTracker {
+    requests: BTreeMap<NdRequestId, Vec<u8>>,
+}
+
+impl ResponseBodyTracker {
+    fn on_chunk(&mut self, request_id: NdRequestId, chunk: &[u8]) {
+        let entry = self.requests.entry(request_id).or_default();
+        entry.extend(chunk);
+    }
+
+    fn data(&self, request_id: NdRequestId) -> Option<&[u8]> {
+        self.requests.get(&request_id).map(|v| v.as_slice())
+    }
+}
+
 struct ClientState {
     network_enabled: bool,
+    response_bodies: Arc<RwLock<ResponseBodyTracker>>,
 }
 
 impl ClientState {
@@ -161,6 +180,51 @@ impl ClientState {
                 self.network_enabled = true;
                 conn.reply(msg.id, serde_json::Value::Object(Default::default()))
                     .await?
+            }
+            // const { network::GetResponseBodyParams::IDENTIFIER }
+            "Network.getResponseBody" => {
+                // FIXME: error handling is bad, it should throw something back
+                // at the caller
+                let data: network::GetResponseBodyParams = serde_json::from_value(msg.params)?;
+                let body = {
+                    let lock = self.response_bodies.read().unwrap();
+                    lock.data(u64::from_str_radix(data.request_id.inner(), 10)?)
+                        // So, devtools will only preview things if they have
+                        // appropriate mime types attached for what they are.
+                        // We do not do any of this at present.
+                        //
+                        // I can assume that the browsers *probably* look at
+                        // content-type and set the mime type field
+                        // accordingly, but that doesn't quite add up since
+                        // they'd also to sniff if the server sent garbage but
+                        // the new request event happens before you have a
+                        // body?
+                        .map(|data| {
+                            if let Ok(r) = std::str::from_utf8(data) {
+                                (false, r.to_string())
+                            } else {
+                                (true, base64::engine::general_purpose::STANDARD.encode(data))
+                            }
+                        })
+                };
+
+                if let Some((base64_encoded, body)) = body {
+                    let resp = network::GetResponseBodyReturns {
+                        body,
+                        base64_encoded,
+                    };
+                    conn.reply(msg.id, serde_json::to_value(&resp)?).await?;
+                } else {
+                    conn.send(cdp_types::Message::Response(cdp_types::Response {
+                        id: msg.id,
+                        result: None,
+                        error: Some(cdp_types::Error {
+                            code: -1,
+                            message: "data not available".to_string(),
+                        }),
+                    }))
+                    .await?
+                }
             }
             _ => {
                 conn.send(cdp_types::Message::Response(cdp_types::Response {
@@ -229,7 +293,17 @@ impl ClientState {
                         has_user_gesture: None,
                     };
 
+                    // FIXME: do we actually need to send this event?
+                    // let ev2 = network::EventRequestWillBeSentExtraInfo {
+                    //     request_id: network::RequestId::new(id.to_string()),
+                    //     associated_cookies: Vec::new(),
+                    //     headers: to_cdp_headers(&parts.headers),
+                    //     connect_timing: network::ConnectTiming { request_time: 0. },
+                    //     client_security_state: None,
+                    // };
+
                     conn.send_event(ev).await?;
+                    // conn.send_event(ev2).await?;
                 }
                 HTTPStreamEvent::NewResponse(id, parts) => {
                     let ev = network::EventResponseReceived {
@@ -243,7 +317,15 @@ impl ClientState {
                             // FIXME: we have this data
                             status_text: "".to_string(),
                             headers: to_cdp_headers(&parts.headers),
-                            mime_type: "".to_string(),
+                            // I am not sure if this is right, I imagine that
+                            // mime types have different format to
+                            // Content-Type, but yolo!
+                            mime_type: parts
+                                .headers
+                                .get(header::CONTENT_TYPE)
+                                .and_then(|s| s.to_str().ok())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(String::new),
                             // FIXME: do we need these?
                             request_headers: None,
                             // FIXME: we can probably find this out
@@ -270,6 +352,28 @@ impl ClientState {
 
                     conn.send_event(ev).await?;
                 }
+                HTTPStreamEvent::RespBodyChunk(id, data) => {
+                    let ev = network::EventDataReceived {
+                        request_id: network::RequestId::new(id.to_string()),
+                        // FIXME: time
+                        timestamp: network::MonotonicTime::new(0.),
+                        data_length: data.len() as i64,
+                        encoded_data_length: data.len() as i64,
+                    };
+
+                    conn.send_event(ev).await?;
+                }
+                HTTPStreamEvent::ResponseFinished(id, len) => {
+                    let ev = network::EventLoadingFinished {
+                        request_id: network::RequestId::new(id.to_string()),
+                        timestamp: network::MonotonicTime::new(0.),
+                        // wtf, f64
+                        encoded_data_length: *len as f64,
+                        should_report_corb_blocking: None,
+                    };
+
+                    conn.send_event(ev).await?;
+                }
                 _ => {}
             },
         }
@@ -279,6 +383,7 @@ impl ClientState {
 
 struct DevtoolsListener {
     send: Arc<EventBuffer<DevtoolsProtoEvent>>,
+    response_bodies: Arc<RwLock<ResponseBodyTracker>>,
 }
 
 impl Listener<HTTPStreamEvent> for DevtoolsListener {
@@ -288,6 +393,12 @@ impl Listener<HTTPStreamEvent> for DevtoolsListener {
         _to_client: bool,
         data: HTTPStreamEvent,
     ) {
+        match &data {
+            HTTPStreamEvent::RespBodyChunk(id, data) => {
+                self.response_bodies.write().unwrap().on_chunk(*id, data)
+            }
+            _ => {}
+        }
         self.send.send(DevtoolsProtoEvent::HTTPStreamEvent(data));
     }
 }
@@ -296,8 +407,10 @@ pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_serv
     let mut conns = ConnectionStream::new("127.0.0.1:1337".parse().unwrap()).await?;
 
     let event_buffer = Arc::new(EventBuffer::new(100, 1000));
+    let response_bodies: Arc<RwLock<ResponseBodyTracker>> = Default::default();
     let devtools_listener = DevtoolsListener {
         send: event_buffer.clone(),
+        response_bodies: response_bodies.clone(),
     };
 
     let key_db = Arc::new(RwLock::new(KeyDB::default()));
@@ -308,7 +421,10 @@ pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_serv
     while let Some(conn) = conns.next().await {
         let conn = conn?;
         let recv = event_buffer.receiver();
-        let mut client_state = ClientState::default();
+        let mut client_state = ClientState {
+            network_enabled: false,
+            response_bodies: response_bodies.clone(),
+        };
 
         tokio::spawn(async move {
             // delay because chrome devtools protocol trace seems to miss

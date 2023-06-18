@@ -1,9 +1,7 @@
 //! HTTP decoding using h2 and httparse
 //!
 //! FIXME:
-//! - How do we do streaming properly?
-//! - How do we do connection reuse properly? We should transition out of Body
-//!   to RecvHeaders, probably, and clear the request?
+//! - Gzip
 
 use std::{collections::HashMap, fmt};
 
@@ -11,13 +9,14 @@ use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 
 use crate::{chomp::IPTarget, listener::Listener};
 
-type RequestId = u64;
+pub type RequestId = u64;
 
 pub enum HTTPStreamEvent {
     NewRequest(RequestId, http::request::Parts),
     ReqBodyChunk(RequestId, Vec<u8>),
     NewResponse(RequestId, http::response::Parts),
     RespBodyChunk(RequestId, Vec<u8>),
+    ResponseFinished(RequestId, usize),
 }
 
 impl fmt::Debug for HTTPStreamEvent {
@@ -38,6 +37,11 @@ impl fmt::Debug for HTTPStreamEvent {
                 .debug_struct("RespBodyChunk")
                 .field("id", id)
                 .field("len", &chunk.len())
+                .finish(),
+            Self::ResponseFinished(id, len) => f
+                .debug_struct("ResponseFinished")
+                .field("id", id)
+                .field("len", len)
                 .finish(),
         }
     }
@@ -74,8 +78,11 @@ pub struct HTTP1Flow {
     // FIXME: streaming misery
     req_buf: Vec<u8>,
     req_remain: usize,
+    req_sent: usize,
+
     resp_buf: Vec<u8>,
     resp_remain: usize,
+    resp_sent: usize,
 }
 
 fn to_header_map(headers: &[httparse::Header<'_>]) -> HeaderMap {
@@ -161,6 +168,7 @@ impl HTTP1Flow {
         let remain = &mut self.req_remain;
         let state = &mut self.server_state;
         let to_client = false;
+        let encoded_length = &mut self.req_sent;
 
         buf.extend_from_slice(&data);
 
@@ -177,6 +185,8 @@ impl HTTP1Flow {
                 return Ok(0);
             }
             Ok(httparse::Status::Complete(body_start)) => {
+                *encoded_length += body_start;
+
                 let mut parts = new_req_parts();
                 parts.method = http::Method::from_bytes(request.method.unwrap().as_bytes())?;
                 parts.uri = request.path.unwrap().parse::<http::Uri>()?;
@@ -214,6 +224,7 @@ impl HTTP1Flow {
         let remain = &mut self.resp_remain;
         let state = &mut self.client_state;
         let to_client = true;
+        let encoded_length = &mut self.resp_sent;
 
         buf.extend_from_slice(&data);
 
@@ -230,6 +241,8 @@ impl HTTP1Flow {
                 return Ok(0);
             }
             Ok(httparse::Status::Complete(body_start)) => {
+                *encoded_length += body_start;
+
                 let mut parts = new_resp_parts();
                 parts.status = http::StatusCode::from_u16(response.code.unwrap())?;
                 parts.version = decode_http1_version(response.version.unwrap())?;
@@ -262,25 +275,33 @@ impl HTTP1Flow {
 
         let len = chunk.len();
 
-        let (remain, msg) = if to_client {
+        let (remain, encoded_length, msg) = if to_client {
             (
                 &mut self.resp_remain,
+                &mut self.req_sent,
                 HTTPStreamEvent::RespBodyChunk(self.request_id, chunk),
             )
         } else {
             (
                 &mut self.req_remain,
+                &mut self.req_sent,
                 HTTPStreamEvent::ReqBodyChunk(self.request_id, chunk),
             )
         };
         let to_consume = len.min(*remain);
         *remain -= to_consume;
+        *encoded_length += to_consume;
 
         next.next.on_data(next.target, to_client, msg);
 
         // end of response, next request is a new one in the same
         // flow/connection
         if *remain == 0 && to_client {
+            next.next.on_data(
+                next.target,
+                to_client,
+                HTTPStreamEvent::ResponseFinished(self.request_id, *encoded_length),
+            );
             let new = Self::new((next.new_request_id)());
             let _ = std::mem::replace(self, new);
         }

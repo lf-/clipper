@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-stream = "0.3.5"
+base64 = "0.21.2"
 chrono = "0.4.26"
 clap = { version = "4.3.2", features = ["derive"] }
 devtools_server = { version = "0.1.0", path = "../crates/devtools_server" }
