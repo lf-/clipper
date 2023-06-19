@@ -1,0 +1,16 @@
+[package]
+name = "wire_blahaj"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "grab-tap"
+path = "src/bin/grab_tap.rs"
+
+[dependencies]
+nix = "0.26.2"
+thiserror = "1.0.40"
+tracing = "0.1.37"
+

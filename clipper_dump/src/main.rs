@@ -2,9 +2,11 @@
 //! protocol functionality before the rest of the system is built.
 use clap::Parser;
 use devtools::do_devtools_server_inner;
+use wire_blahaj::unprivileged::run_in_ns;
 
 use std::{
     fmt::Debug,
+    os::fd::RawFd,
     path::PathBuf,
     sync::{Arc, RwLock},
 };
@@ -25,8 +27,26 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(clap::Parser, Debug)]
 enum Command {
-    DumpPcap { file: PathBuf },
-    DevtoolsServer { file: PathBuf },
+    DumpPcap {
+        file: PathBuf,
+    },
+    DevtoolsServer {
+        file: PathBuf,
+    },
+    Capture {
+        #[clap(num_args = 0..)]
+        args: Vec<String>,
+    },
+    /// Grabs a TAP device from the specified pid and yeets it over a Unix
+    /// socket. This subcommand is used for reexecing ourselves and is of
+    /// limited utility to users.
+    #[cfg(target_os = "linux")]
+    #[clap(hide = true)]
+    GrabTap {
+        pid: u64,
+        dev_name: String,
+        sock_fdnum: RawFd,
+    },
 }
 
 pub fn chomper(
@@ -47,12 +67,17 @@ fn do_dump_pcap(file: PathBuf) -> Result<(), Error> {
     Ok(())
 }
 
-fn do_devtools_server(file: PathBuf) -> Result<(), devtools_server::Error> {
+fn do_devtools_server(file: PathBuf) -> Result<(), Error> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
 
     rt.block_on(do_devtools_server_inner(file))
+}
+
+fn do_capture(args: Vec<String>) -> Result<(), Error> {
+    unsafe { run_in_ns(args, |_| {})? };
+    Ok(())
 }
 
 fn main() -> Result<(), Error> {
@@ -66,6 +91,15 @@ fn main() -> Result<(), Error> {
     match args {
         Command::DumpPcap { file } => do_dump_pcap(file)?,
         Command::DevtoolsServer { file } => do_devtools_server(file)?,
+        Command::Capture { args } => do_capture(args)?,
+        #[cfg(target_os = "linux")]
+        Command::GrabTap {
+            pid,
+            dev_name,
+            sock_fdnum,
+        } => unsafe {
+            wire_blahaj::unprivileged::send_capture_socket_for_ns(pid, &dev_name, sock_fdnum)?
+        },
     }
     Ok(())
 }
