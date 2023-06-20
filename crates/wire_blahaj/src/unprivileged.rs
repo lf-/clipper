@@ -10,24 +10,28 @@
 
 use std::{
     ffi::CString,
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::Error as IoError,
     io::{IoSlice, IoSliceMut, Read, Write},
     mem,
     os::fd::{AsRawFd, FromRawFd, RawFd},
     process::{exit, Command, Stdio},
+    ptr,
 };
 
 use nix::{
     cmsg_space,
     errno::Errno,
-    ioctl_readwrite_bad, libc,
+    ioctl_readwrite_bad,
+    libc::{self, prctl, PR_SET_NO_NEW_PRIVS},
     sched::{unshare, CloneFlags},
     sys::socket::{
         bind, recvmsg, sendmsg, socket, socketpair, AddressFamily, ControlMessage, LinkAddr,
         MsgFlags, SockFlag, SockProtocol, SockType, SockaddrLike, UnixAddr,
     },
-    unistd::{close, execvp, fork, pipe, ForkResult, Pid},
+    unistd::{
+        close, execvp, fork, getgid, getuid, pipe, setgroups, setresuid, ForkResult, Gid, Pid, Uid,
+    },
 };
 
 const DEV_NAME: &'static str = "tap0";
@@ -209,12 +213,46 @@ fn parent(
     Ok(())
 }
 
+fn setup_uids(uid_in_parent: Uid, gid_in_parent: Gid) -> Result<(), Error> {
+    // XXX: Your groups will be nobody nobody nobody nobody nobody because
+    // setgroups is banned for unprivileged users. If you *don't* have a gid
+    // map then you are even more nobody, so I guess this is probably the most
+    // transparent way to do it.
+    //
+    // FIXME: is it useful or interesting to implement fake root in the
+    // container?
+
+    fs::write(
+        "/proc/self/uid_map",
+        format!("{uid_in_parent} {uid_in_parent} 1"),
+    )
+    .context("write uid_map")?;
+
+    fs::write("/proc/self/setgroups", "deny").context("setgroups disable")?;
+
+    fs::write(
+        "/proc/self/gid_map",
+        format!("{gid_in_parent} {gid_in_parent} 1"),
+    )
+    .context("write gid_map")?;
+
+    // Why not, we don't need privileges anyway :P
+    unsafe {
+        Errno::result(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)).context("PR_SET_NO_NEW_PRIVS")?
+    };
+
+    Ok(())
+}
+
 fn child(
     args: Vec<String>,
     sock: RawFd,
     notify_child_ready_pipe: RawFd,
     notify_net_ready_pipe: RawFd,
 ) -> Result<(), Error> {
+    let uid_in_parent = getuid();
+    let gid_in_parent = getgid();
+
     unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNET).context("unshare")?;
     send_1_and_close(notify_child_ready_pipe).context("notify parent that child is ready")?;
     tracing::debug!("child notify");
@@ -236,6 +274,8 @@ fn child(
     .context("sendmsg capture socket")?;
     close(sock).context("close fd passing socket")?;
     close(capture_sock).context("close capture socket")?;
+
+    setup_uids(uid_in_parent, gid_in_parent)?;
 
     let args: Vec<CString> = args
         .iter()

@@ -1,8 +1,8 @@
 use std::os::raw::c_int;
 
-use wire_blahaj::unprivileged::{send_capture_socket_for_ns, Error};
+use wire_blahaj::unprivileged::{send_capture_socket_for_ns, DynError};
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), DynError> {
     let mut args = std::env::args();
     let argv0 = args.next().unwrap();
     if args.len() != 3 {
