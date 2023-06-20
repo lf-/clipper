@@ -14,25 +14,30 @@ use std::{
     io::Error as IoError,
     io::{IoSlice, IoSliceMut, Read, Write},
     mem,
-    os::fd::{AsRawFd, FromRawFd, RawFd},
+    os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+    pin::Pin,
     process::{exit, Command, Stdio},
-    ptr,
+    task::{Context, Poll},
 };
 
+use futures::ready;
 use nix::{
     cmsg_space,
     errno::Errno,
     ioctl_readwrite_bad,
     libc::{self, prctl, PR_SET_NO_NEW_PRIVS},
     sched::{unshare, CloneFlags},
-    sys::socket::{
-        bind, recvmsg, sendmsg, socket, socketpair, AddressFamily, ControlMessage, LinkAddr,
-        MsgFlags, SockFlag, SockProtocol, SockType, SockaddrLike, UnixAddr,
+    sys::{
+        socket::{
+            bind, recvmsg, sendmsg, setsockopt, socket, socketpair, sockopt, AddressFamily,
+            ControlMessage, ControlMessageOwned, LinkAddr, MsgFlags, SockFlag, SockProtocol,
+            SockType, SockaddrLike, UnixAddr,
+        },
+        time::TimeSpec,
     },
-    unistd::{
-        close, execvp, fork, getgid, getuid, pipe, setgroups, setresuid, ForkResult, Gid, Pid, Uid,
-    },
+    unistd::{close, execvp, fork, getgid, getuid, pipe, ForkResult, Gid, Pid, Uid},
 };
+use tokio::io::unix::AsyncFd;
 
 const DEV_NAME: &'static str = "tap0";
 
@@ -80,6 +85,8 @@ pub fn make_capture_socket(dev_name: &str) -> Result<RawFd, Error> {
         SockProtocol::Raw,
     )
     .context("make_capture_socket socket()")?;
+
+    setsockopt(capture_sock, sockopt::ReceiveTimestampns, &true).context("set timestampns")?;
 
     // horrible code, but it's equivalent to the way to do it in C
     let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
@@ -201,7 +208,7 @@ fn parent(
 
     let rights = recvd.cmsgs().next().ok_or(err("no cmsgs"))?;
     let fd = match rights {
-        nix::sys::socket::ControlMessageOwned::ScmRights(fds) => Ok(fds[0]),
+        ControlMessageOwned::ScmRights(fds) => Ok(fds[0]),
         _ => Err(err("wrong cmsg type")),
     }?;
 
@@ -359,4 +366,69 @@ pub unsafe fn run_in_ns(args: Vec<String>, callback: impl FnOnce(RawFd)) -> Resu
         }
     }
     Ok(())
+}
+
+pub struct UnprivilegedCapture {
+    fd: AsyncFd<OwnedFd>,
+}
+
+impl UnprivilegedCapture {
+    pub unsafe fn new(raw_fd: RawFd) -> Result<UnprivilegedCapture, DynError> {
+        Ok(Self {
+            fd: AsyncFd::new(unsafe { OwnedFd::from_raw_fd(raw_fd) })?,
+        })
+    }
+}
+
+fn ts_to_nanos(ts: TimeSpec) -> Nanos {
+    (ts.tv_sec() as u64) * 10u64.pow(9) + (ts.tv_nsec() as u64)
+}
+
+/// Nanoseconds since the Unix epoch
+type Nanos = u64;
+
+impl futures::Stream for UnprivilegedCapture {
+    type Item = Result<(Vec<u8>, Nanos), std::io::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            let mut guard = ready!(self.fd.poll_read_ready(cx))?;
+
+            // FIXME: giant frames? overall how the hell do you do reasonable
+            // buffer management here?
+            let mut buf = Vec::new();
+            buf.resize(2048, 0u8);
+
+            match guard.try_io(|inner| {
+                let mut cmsgs = cmsg_space!(TimeSpec);
+                let ret = recvmsg::<LinkAddr>(
+                    inner.as_raw_fd(),
+                    &mut [IoSliceMut::new(&mut buf)],
+                    Some(&mut cmsgs),
+                    MsgFlags::MSG_DONTWAIT,
+                )
+                .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?;
+
+                let timespec = match ret
+                    .cmsgs()
+                    .next()
+                    .ok_or(IoError::new(std::io::ErrorKind::Other, "missing cmsg"))?
+                {
+                    ControlMessageOwned::ScmTimestampns(ts) => ts,
+                    _ => return Err(IoError::new(std::io::ErrorKind::Other, "wrong cmsg")),
+                };
+
+                tracing::debug!("rm {ret:?}");
+                Ok((ret.bytes, timespec))
+            }) {
+                Ok(Ok((len, cmsg))) => {
+                    buf.resize(len, 0);
+                    return Poll::Ready(Some(Ok((buf, ts_to_nanos(cmsg)))));
+                }
+                // errors probably imply we don't have more data?
+                Ok(Err(_err)) => return Poll::Ready(None),
+                Err(_would_block) => continue,
+            }
+        }
+    }
 }

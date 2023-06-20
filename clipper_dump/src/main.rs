@@ -2,6 +2,7 @@
 //! protocol functionality before the rest of the system is built.
 use clap::Parser;
 use devtools::do_devtools_server_inner;
+use futures::StreamExt;
 use wire_blahaj::unprivileged::run_in_ns;
 
 use std::{
@@ -75,8 +76,29 @@ fn do_devtools_server(file: PathBuf) -> Result<(), Error> {
     rt.block_on(do_devtools_server_inner(file))
 }
 
+async fn start_capture(raw_fd: RawFd) -> Result<(), Error> {
+    let mut cap = unsafe { wire_blahaj::unprivileged::UnprivilegedCapture::new(raw_fd)? };
+
+    while let Some(v) = cap.next().await {
+        let (v, ts) = v?;
+        tracing::debug!("pakit {} {}", ts, hexdump::HexDumper::new(&v));
+    }
+    Ok(())
+}
+
 fn do_capture(args: Vec<String>) -> Result<(), Error> {
-    unsafe { run_in_ns(args, |_| {})? };
+    unsafe {
+        run_in_ns(args, |fd| {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            match rt.block_on(start_capture(fd)) {
+                Ok(_) => {}
+                Err(e) => tracing::error!("Error capturing: {e}"),
+            }
+        })?
+    };
     Ok(())
 }
 

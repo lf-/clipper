@@ -2531,8 +2531,10 @@ dependencies = [
 name = "wire_blahaj"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "nix",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
