@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 use std::os::raw::c_int;
 
 use wire_blahaj::unprivileged::{send_capture_socket_for_ns, DynError};

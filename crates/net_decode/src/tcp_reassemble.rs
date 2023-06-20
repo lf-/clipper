@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Does a similar thing to the following:
 //! https://github.com/rusticata/pcap-analyzer/blob/master/libpcap-analyzer/src/tcp_reassembly.rs#L14
 use pktparse::tcp::TcpHeader;

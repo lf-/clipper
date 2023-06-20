@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Hooks to pull keys out of openssl
 
 use std::ffi::{c_char, CStr};

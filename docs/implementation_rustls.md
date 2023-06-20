@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2023 Jade Lovelace
+
+SPDX-License-Identifier: MPL-2.0
+-->
+
 # Implementation notes for rustls
 
 We definitely have to fork because everything is `pub(crate)`, which is a good

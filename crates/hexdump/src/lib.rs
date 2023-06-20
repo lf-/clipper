@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! A reimplementation of the `hexdump` crate with no_std support.
 #![cfg_attr(not(test), no_std)]
 

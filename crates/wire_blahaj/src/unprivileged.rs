@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Unprivileged capture on Linux.
 //!
 //! This is achieved by yeeting the target process into a namespace using e.g.

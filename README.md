@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2023 Jade Lovelace
+
+SPDX-License-Identifier: MPL-2.0
+-->
+
 # clipper
 
 This is a project to escrow TLS keys for debugging, named after the notorious

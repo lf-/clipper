@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Hooks to extract keys from rustls.
 //!
 //! These are extremely crimey because rustls is statically linked into the

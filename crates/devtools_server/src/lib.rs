@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! A server for Chrome devtools protocol.
 //!
 //! Used to provide the network tab's APIs.

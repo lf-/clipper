@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+
+Files: rustls-intercept/*
+Copyright: 2023 Rustls Contributors
+License: MIT OR Apache-2.0 OR ISC
+
+Files: crates/net_decode/corpus/*
+Copyright: 2023 Jade Lovelace
+License: MPL-2.0

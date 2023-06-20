@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Command-line debugging tool for clipper to exercise pcap and network
 //! protocol functionality before the rest of the system is built.
 use clap::Parser;

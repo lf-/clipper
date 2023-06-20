@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 use crate::{
     key_db::KeyDB,
     listener::{Listener, Nanos, TimingInfo},

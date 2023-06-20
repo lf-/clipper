@@ -1,10 +1,8 @@
-// SPDX-FileCopyrightText: Rustls Contributors, Jade Lovelace
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+// SPDX-FileCopyrightText: 2023 Rustls Contributors
+//
 // SPDX-License-Identifier: MIT OR Apache-2.0 OR ISC
-//! Decoding of TLS, fun!
-//!
-//! It's 50/50 on hacking the shit out of rustls or figuring out how to use
-//! tls-parser, and I think that hacking the shit out of rustls is possibly the
-//! way to get least surprised.
+// SPDX-License-Identifier: MPL-2.0
 
 use std::{
     collections::{HashMap, VecDeque},

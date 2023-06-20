@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Traditional LD_PRELOAD hooks. NOTE: This is actively somewhat broken on
 //! openssl, because they use -Bsymbolic so all calls to openssl functions from
 //! within openssl are statically bound and don't invoke the hooks (!).

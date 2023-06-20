@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
 [workspace]
 members = ["clipper_inject", "fixtures/*", "crates/*", "rustls-intercept/rustls", "clipper_dump"]
 resolver = "2"

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! This module uses Frida's gum library for injection into functions. This is
 //! necessary to do things like intercepting functions with more force, for
 //! example, private functions or functions that are not accessed via exports.

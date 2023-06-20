@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! Key database, managing the keys from SSLKEYLOGFILE like things
 //!
 //! <https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html>
