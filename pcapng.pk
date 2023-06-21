@@ -1,0 +1,35 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
+fun max = (uoff64 a, uoff64 b) uoff64: {
+    return a > b ? a : b;
+};
+
+type PCAPNG_Option = struct {
+    uint16 typ : typ != 0UH;
+    offset<uint16, B> len;
+    byte[len] value;
+    byte[alignto(len, 4#B)] padding;
+};
+
+type PCAPNG_Options = struct {
+    PCAPNG_Option[] opts;
+    byte[4] end == [0UB, 0UB, 0UB, 0UB];
+};
+
+type PCAPNG_Shb = struct {
+    uint32 typ == 0x0a0d0d0a;
+    offset<uint32, B> len;
+    byte[4] byte_order == [0x4dUB, 0x3cUB, 0x2bUB, 0x1aUB];
+    uint16 major == 1;
+    uint16 minor == 0;
+    uint64 section_len;
+
+    PCAPNG_Options opts;
+    offset<uint32, B> len2 == len;
+    byte[0] assertion : len == OFFSET;
+};
+
+type PCAPNG_Idb = struct {
+};
