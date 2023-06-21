@@ -394,6 +394,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
+name = "cookie-factory"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "396de984970346b0d9e93d1415082923c679e5ae5c3ee3dcbd104f5610af126b"
+
+[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1337,6 +1343,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "846b4b994aba12de62190927fb24177da7b8e245e1a9a0006dc6d40a27801024"
 dependencies = [
  "circular",
+ "cookie-factory",
  "nom",
  "rusticata-macros",
 ]
@@ -2533,6 +2540,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "nix",
+ "pcap-parser",
  "thiserror",
  "tokio",
  "tracing",

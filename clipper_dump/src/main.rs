@@ -7,7 +7,11 @@
 use clap::Parser;
 use devtools::do_devtools_server_inner;
 use futures::StreamExt;
-use wire_blahaj::unprivileged::run_in_ns;
+use tokio::{fs::OpenOptions as TokioOpenOptions, io::AsyncWriteExt};
+use wire_blahaj::{
+    pcap_writer::{AsyncWriteHack, PcapWriter},
+    unprivileged::run_in_ns,
+};
 
 use std::{
     fmt::Debug,
@@ -38,7 +42,12 @@ enum Command {
     DevtoolsServer {
         file: PathBuf,
     },
+    /// Invokes a program with capture. Does not require root on Linux.
     Capture {
+        /// File to write a pcapng to.
+        #[clap(short = 'o', long)]
+        output_file: PathBuf,
+        /// Arguments for the program to invoke.
         #[clap(num_args = 0..)]
         args: Vec<String>,
     },
@@ -80,24 +89,51 @@ fn do_devtools_server(file: PathBuf) -> Result<(), Error> {
     rt.block_on(do_devtools_server_inner(file))
 }
 
-async fn start_capture(raw_fd: RawFd) -> Result<(), Error> {
+async fn start_capture(output_file: PathBuf, raw_fd: RawFd) -> Result<(), Error> {
     let mut cap = unsafe { wire_blahaj::unprivileged::UnprivilegedCapture::new(raw_fd)? };
+    let async_writer = TokioOpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(output_file)
+        .await?;
+    tokio::pin!(async_writer);
+
+    let writer = AsyncWriteHack::default();
+    let mut pcap_writer = PcapWriter::new(writer)?;
+    pcap_writer
+        .get_mut()
+        .flush_downstream(&mut async_writer)
+        .await?;
 
     while let Some(v) = cap.next().await {
-        let (v, ts) = v?;
-        tracing::debug!("pakit {} {}", ts, hexdump::HexDumper::new(&v));
+        let (v, meta) = v?;
+
+        pcap_writer.on_packet(
+            wire_blahaj::ts_to_nanos(meta.time),
+            meta.if_index as u32,
+            &v,
+        )?;
+        pcap_writer
+            .get_mut()
+            .flush_downstream(&mut async_writer)
+            .await?;
+        async_writer.flush().await?;
+
+        tracing::debug!("pakit {} {}", meta.time, hexdump::HexDumper::new(&v));
+        // pcap_writer.on_packet(ts);
     }
     Ok(())
 }
 
-fn do_capture(args: Vec<String>) -> Result<(), Error> {
+fn do_capture(output_file: PathBuf, args: Vec<String>) -> Result<(), Error> {
     unsafe {
         run_in_ns(args, |fd| {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap();
-            match rt.block_on(start_capture(fd)) {
+            match rt.block_on(start_capture(output_file, fd)) {
                 Ok(_) => {}
                 Err(e) => tracing::error!("Error capturing: {e}"),
             }
@@ -117,7 +153,7 @@ fn main() -> Result<(), Error> {
     match args {
         Command::DumpPcap { file } => do_dump_pcap(file)?,
         Command::DevtoolsServer { file } => do_devtools_server(file)?,
-        Command::Capture { args } => do_capture(args)?,
+        Command::Capture { args, output_file } => do_capture(output_file, args)?,
         #[cfg(target_os = "linux")]
         Command::GrabTap {
             pid,

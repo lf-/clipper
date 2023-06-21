@@ -257,6 +257,7 @@ pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
                     pcap_parser::PcapBlockOwned::NG(block) => {
                         match block {
                             pcap_parser::Block::InterfaceDescription(idb) => {
+                                tracing::debug!("IDB: {:?}", idb);
                                 iface_db.on_interface(idb);
                             }
                             pcap_parser::Block::DecryptionSecrets(dsb) => {

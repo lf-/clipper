@@ -4,10 +4,13 @@
 
 //! Unprivileged capture on Linux.
 //!
-//! This is achieved by yeeting the target process into a namespace using e.g.
-//! rootlesskit + slirp4netns, and then taking a handle to the TAP device
-//! inside the net namespace and executing the capture in the host namespace.
+//! This is achieved by yeeting the target process into a namespace using some
+//! custom code to do mostly the same thing as unshare, as well as slirp4netns,
+//! and then taking a handle to the TAP device inside the net namespace and
+//! executing the capture in the host namespace.
 //!
+//! The unptivileged part is achieved by giving the guest process fewer
+//! privileges, rather than giving ourselves more.
 //!
 //! Inspired by: <https://github.com/rootless-containers/slirp4netns/blob/master/main.c#L223>
 //! and <https://github.com/giuseppe/become-root/blob/master/main.c>
@@ -15,7 +18,7 @@
 use std::{
     ffi::CString,
     fs::{self, File, OpenOptions},
-    io::Error as IoError,
+    io::{self, Error as IoError},
     io::{IoSlice, IoSliceMut, Read, Write},
     mem,
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
@@ -384,15 +387,46 @@ impl UnprivilegedCapture {
     }
 }
 
-fn ts_to_nanos(ts: TimeSpec) -> Nanos {
-    (ts.tv_sec() as u64) * 10u64.pow(9) + (ts.tv_nsec() as u64)
+#[derive(Debug)]
+pub struct CapturedPacketMeta {
+    pub len: usize,
+    pub time: TimeSpec,
+    pub if_index: usize,
 }
 
-/// Nanoseconds since the Unix epoch
-type Nanos = u64;
+fn recvmsg_cap(fd: RawFd, buf: &mut [u8]) -> io::Result<CapturedPacketMeta> {
+    let mut cmsgs = cmsg_space!(TimeSpec);
+    let ret = recvmsg::<LinkAddr>(
+        fd,
+        &mut [IoSliceMut::new(buf)],
+        Some(&mut cmsgs),
+        MsgFlags::MSG_DONTWAIT,
+    )
+    .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?;
+
+    let timespec = match ret
+        .cmsgs()
+        .next()
+        .ok_or_else(|| IoError::new(std::io::ErrorKind::Other, "missing cmsg"))?
+    {
+        ControlMessageOwned::ScmTimestampns(ts) => ts,
+        _ => return Err(IoError::new(std::io::ErrorKind::Other, "wrong cmsg")),
+    };
+
+    let addr = ret
+        .address
+        .ok_or_else(|| IoError::new(std::io::ErrorKind::Other, "missing addr"))?;
+
+    tracing::debug!("rm {ret:?}");
+    Ok(CapturedPacketMeta {
+        if_index: addr.ifindex(),
+        len: ret.bytes,
+        time: timespec,
+    })
+}
 
 impl futures::Stream for UnprivilegedCapture {
-    type Item = Result<(Vec<u8>, Nanos), std::io::Error>;
+    type Item = Result<(Vec<u8>, CapturedPacketMeta), std::io::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -403,31 +437,10 @@ impl futures::Stream for UnprivilegedCapture {
             let mut buf = Vec::new();
             buf.resize(2048, 0u8);
 
-            match guard.try_io(|inner| {
-                let mut cmsgs = cmsg_space!(TimeSpec);
-                let ret = recvmsg::<LinkAddr>(
-                    inner.as_raw_fd(),
-                    &mut [IoSliceMut::new(&mut buf)],
-                    Some(&mut cmsgs),
-                    MsgFlags::MSG_DONTWAIT,
-                )
-                .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?;
-
-                let timespec = match ret
-                    .cmsgs()
-                    .next()
-                    .ok_or(IoError::new(std::io::ErrorKind::Other, "missing cmsg"))?
-                {
-                    ControlMessageOwned::ScmTimestampns(ts) => ts,
-                    _ => return Err(IoError::new(std::io::ErrorKind::Other, "wrong cmsg")),
-                };
-
-                tracing::debug!("rm {ret:?}");
-                Ok((ret.bytes, timespec))
-            }) {
-                Ok(Ok((len, cmsg))) => {
+            match guard.try_io(|inner| recvmsg_cap(inner.as_raw_fd(), &mut buf)) {
+                Ok(Ok(meta @ CapturedPacketMeta { len, .. })) => {
                     buf.resize(len, 0);
-                    return Poll::Ready(Some(Ok((buf, ts_to_nanos(cmsg)))));
+                    return Poll::Ready(Some(Ok((buf, meta))));
                 }
                 // errors probably imply we don't have more data?
                 Ok(Err(_err)) => return Poll::Ready(None),
