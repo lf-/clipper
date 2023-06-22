@@ -48,6 +48,7 @@ impl AsyncWriteHack {
         let writer = self.writer.get_mut();
         AsyncWriteExt::write_all(async_writer, &writer).await?;
         writer.clear();
+        self.writer.set_position(0);
         Ok(())
     }
 }

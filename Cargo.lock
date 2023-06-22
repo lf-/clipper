@@ -2539,6 +2539,7 @@ name = "wire_blahaj"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "hexdump",
  "nix",
  "pcap-parser",
  "thiserror",
