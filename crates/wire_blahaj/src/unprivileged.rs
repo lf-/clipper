@@ -180,13 +180,20 @@ fn pidfd_open(pid: Pid, flags: c_uint) -> c_int {
     unsafe { nix::libc::syscall(SYS_pidfd_open, pid, flags) as i32 }
 }
 
+/// Parent process which supervises the unprivileged child process.
+///
+/// It:
+/// * Waits for the child to indicate it's started, via notify_child_ready_pipe
+/// * Notifies the child that slirp4netns is ready, via notify_net_ready_pipe
+/// * Calls the provided callback with a pidfd for the child, and the capture
+///   fd.
 fn parent(
+    hooks: &mut dyn LaunchHooks,
     child_pid: Pid,
     sock: RawFd,
     notify_child_ready_pipe: RawFd,
     notify_net_ready_pipe: RawFd,
     notify_close_pipe: RawFd,
-    callback: impl FnOnce(RawFd, RawFd),
 ) -> Result<(), Error> {
     let child_pidfd = Errno::result(pidfd_open(child_pid, PIDFD_NONBLOCK)).context("pidfd_open")?;
     tracing::debug!("parent notified, starting networking");
@@ -226,7 +233,7 @@ fn parent(
     }?;
 
     tracing::debug!("got capture fd: {fd}");
-    callback(child_pidfd, fd);
+    hooks.parent_go(child_pidfd, fd);
 
     networking.wait().context("wait for slirp4netns")?;
 
@@ -264,7 +271,17 @@ fn setup_uids(uid_in_parent: Uid, gid_in_parent: Gid) -> Result<(), Error> {
     Ok(())
 }
 
+/// Child process, which drops privileges and execs the specified command.
+///
+/// It:
+/// * Enters a new network and user namespace
+/// * Notifies the parent it has done so via notify_child_ready_pipe
+/// * Waits for the parent to indicate network is up via notify_net_ready_pipe
+/// * Makes a capture socket and sends it to the parent
+/// * Sets up its UID to identity-map to the outer user namespace.
+/// * Execs the command.
 fn child(
+    hooks: &mut dyn LaunchHooks,
     args: Vec<String>,
     sock: RawFd,
     notify_child_ready_pipe: RawFd,
@@ -297,6 +314,10 @@ fn child(
 
     setup_uids(uid_in_parent, gid_in_parent)?;
 
+    for (var, val) in hooks.add_env() {
+        std::env::set_var(var, val);
+    }
+
     let args: Vec<CString> = args
         .iter()
         .map(|a| CString::new(a.as_str()).unwrap())
@@ -308,6 +329,24 @@ fn child(
     Ok(())
 }
 
+pub trait LaunchHooks {
+    /// Executed in the parent immediately after fork
+    fn parent_after_fork(&mut self) {}
+
+    /// Executed in the child immediately after fork
+    fn child_after_fork(&mut self) {}
+
+    /// Executed in the parent process after networking is started and the
+    /// child process is either about to exec or has already.
+    fn parent_go(&mut self, _child_pidfd: RawFd, _capture_fd: RawFd) {}
+
+    /// Executed in the child process after fork, just prior to executing the
+    /// new process.
+    fn add_env(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+}
+
 /// Runs the given command in a user plus network namespace, with slirp4netns
 /// providing NAT.
 ///
@@ -316,10 +355,7 @@ fn child(
 /// socket respectively.
 ///
 /// Safety: cannot be run from a (currently) multithreaded process.
-pub unsafe fn run_in_ns(
-    args: Vec<String>,
-    callback: impl FnOnce(RawFd, RawFd),
-) -> Result<(), DynError> {
+pub unsafe fn run_in_ns(args: Vec<String>, hooks: &mut dyn LaunchHooks) -> Result<(), DynError> {
     // ceci n'est pas une pipe
     let (parent_sock, child_sock) = socketpair(
         AddressFamily::Unix,
@@ -343,15 +379,16 @@ pub unsafe fn run_in_ns(
 
             let span = tracing::span!(tracing::Level::DEBUG, "parent");
             let _guard = span.enter();
+            hooks.parent_after_fork();
 
             tracing::debug!("parent! child pid = {child}");
             parent(
+                hooks,
                 child,
                 parent_sock,
                 notify_child_ready_pipe.0,
                 notify_net_ready_pipe.1,
                 notify_close_pipe.0,
-                callback,
             )?;
         }
         ForkResult::Child => {
@@ -368,9 +405,11 @@ pub unsafe fn run_in_ns(
 
             let span = tracing::span!(tracing::Level::DEBUG, "child");
             let _guard = span.enter();
+            hooks.child_after_fork();
 
             tracing::debug!("child!");
             match child(
+                hooks,
                 args,
                 child_sock,
                 notify_child_ready_pipe.1,
@@ -427,7 +466,7 @@ fn recvmsg_cap(fd: RawFd, buf: &mut [u8]) -> io::Result<CapturedPacketMeta> {
         .address
         .ok_or_else(|| IoError::new(std::io::ErrorKind::Other, "missing addr"))?;
 
-    tracing::debug!("rm {ret:?}");
+    tracing::trace!("recvmsg {ret:?}");
     Ok(CapturedPacketMeta {
         if_index: addr.ifindex(),
         len: ret.bytes,

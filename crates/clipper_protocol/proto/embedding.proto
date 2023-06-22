@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
+syntax = "proto3";
+package clipper.embedding;
+
+enum KeyType {
+    TLS = 0;
+};
+
+// New keys were received.
+message NewKeysReq {
+    KeyType key_type = 1;
+    bytes keys = 2;
+};
+
+message NewKeysResp {
+    bool ok = 1;
+};
+
+// RPCs for sending stuff to the surrounding capture instance.
+service ClipperEmbedding {
+    rpc NewKeys(NewKeysReq) returns (NewKeysResp);
+};

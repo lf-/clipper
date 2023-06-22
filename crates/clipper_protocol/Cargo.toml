@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "clipper_protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Interface for communication between the clipper_intercept injection and the host clipper instance"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+prost = "0.11.9"
+tonic = "0.9.2"
+
+[build-dependencies]
+tonic-build = "0.9.2"
