@@ -3,6 +3,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Writing of pcap files.
+//!
+//! FIXME: the pcapng standard states that DSB blocks SHOULD be at the start of
+//! the file, effectively. We also assume that, for now (although we will have
+//! to start buffering packets we don't have keys for, to do live capture).
+//! However, this is *extremely* annoying if you are doing your pcap writing at
+//! the same time as gathering decryption secrets.
 
 use std::{collections::BTreeMap, io, pin::Pin};
 
@@ -14,9 +20,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::Nanos;
 
-pub struct PcapWriter<W> {
-    writer: W,
-
+pub struct PcapWriter {
     /// Map between host if_index values and pcapng values.
     if_index_map: BTreeMap<u32, u32>,
 
@@ -53,27 +57,18 @@ impl AsyncWriteHack {
     }
 }
 
-impl<W: io::Write> PcapWriter<W> {
-    pub fn new(writer: W) -> Result<Self, io::Error> {
+impl PcapWriter {
+    pub fn new(writer: &mut impl io::Write) -> Result<Self, io::Error> {
         let mut w = PcapWriter {
-            writer,
             if_index_map: Default::default(),
             pcap_if_index: 0,
         };
 
-        w.write_section_header()?;
+        w.write_section_header(writer)?;
         Ok(w)
     }
 
-    pub fn get_mut(&mut self) -> &mut W {
-        &mut self.writer
-    }
-
-    pub fn get(&self) -> &W {
-        &self.writer
-    }
-
-    fn write_section_header(&mut self) -> Result<(), io::Error> {
+    fn write_section_header(&mut self, writer: &mut impl io::Write) -> Result<(), io::Error> {
         let mut shb = SectionHeaderBlock {
             block_type: 0,
             block_len1: 0,
@@ -91,11 +86,15 @@ impl<W: io::Write> PcapWriter<W> {
             block_len2: 0,
         };
 
-        self.writer.write(&shb.to_vec().unwrap())?;
+        writer.write(&shb.to_vec().unwrap())?;
         Ok(())
     }
 
-    fn pcap_interface_id(&mut self, if_index: u32) -> Result<u32, io::Error> {
+    fn pcap_interface_id(
+        &mut self,
+        writer: &mut impl io::Write,
+        if_index: u32,
+    ) -> Result<u32, io::Error> {
         if let Some(pcap_if_index) = self.if_index_map.get(&if_index) {
             return Ok(*pcap_if_index);
         }
@@ -119,7 +118,7 @@ impl<W: io::Write> PcapWriter<W> {
             if_tsoffset: 0,
         };
 
-        self.writer.write_all(&idb.to_vec().unwrap())?;
+        writer.write_all(&idb.to_vec().unwrap())?;
 
         let ret = self.pcap_if_index;
         self.if_index_map.insert(if_index, ret);
@@ -128,8 +127,14 @@ impl<W: io::Write> PcapWriter<W> {
         Ok(ret)
     }
 
-    pub fn on_packet(&mut self, time: Nanos, if_index: u32, data: &[u8]) -> Result<(), io::Error> {
-        let pcap_if_index = self.pcap_interface_id(if_index)?;
+    pub fn on_packet(
+        &mut self,
+        writer: &mut impl io::Write,
+        time: Nanos,
+        if_index: u32,
+        data: &[u8],
+    ) -> Result<(), io::Error> {
+        let pcap_if_index = self.pcap_interface_id(writer, if_index)?;
 
         let (ts_high, ts_low) = ((time >> 32) & 0xffff_ffff, time & 0xffff_ffff);
 
@@ -146,21 +151,8 @@ impl<W: io::Write> PcapWriter<W> {
             options: Vec::new(),
         };
 
-        self.writer.write_all(&epb.to_vec().unwrap())?;
+        writer.write_all(&epb.to_vec().unwrap())?;
 
         Ok(())
-    }
-
-    pub fn into_inner(self) -> W {
-        self.writer
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn writer() -> PcapWriter<io::Cursor<Vec<u8>>> {
-        PcapWriter::new(io::Cursor::new(Vec::new())).unwrap()
     }
 }

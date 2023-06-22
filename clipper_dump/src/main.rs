@@ -7,7 +7,11 @@
 use clap::Parser;
 use devtools::do_devtools_server_inner;
 use futures::StreamExt;
-use tokio::{fs::OpenOptions as TokioOpenOptions, io::AsyncWriteExt};
+use tokio::{
+    fs::OpenOptions as TokioOpenOptions,
+    io::{unix::AsyncFd, AsyncSeekExt, AsyncWriteExt},
+};
+use tokio_util::sync::CancellationToken;
 use wire_blahaj::{
     pcap_writer::{AsyncWriteHack, PcapWriter},
     unprivileged::run_in_ns,
@@ -89,51 +93,95 @@ fn do_devtools_server(file: PathBuf) -> Result<(), Error> {
     rt.block_on(do_devtools_server_inner(file))
 }
 
-async fn start_capture(output_file: PathBuf, raw_fd: RawFd) -> Result<(), Error> {
-    let mut cap = unsafe { wire_blahaj::unprivileged::UnprivilegedCapture::new(raw_fd)? };
+async fn start_capture(
+    output_file: PathBuf,
+    raw_fd: RawFd,
+    terminate: CancellationToken,
+) -> Result<(), Error> {
+    let mut cap = unsafe { wire_blahaj::unprivileged::UnprivilegedCapture::new(raw_fd)? }.fuse();
     let async_writer = TokioOpenOptions::new()
         .write(true)
         .truncate(true)
         .create(true)
         .open(output_file)
         .await?;
+
+    // XXX: to comply with the pcapng standard, which states that DSB entries
+    // SHOULD be before the affected packets, we need to put the packets
+    // somewhere. WELL, since you can just concatenate pcapng stuff together,
+    // let's just write the packets into a tempfile and on exit copy it back
+    // into the main file. Horrible but *so* funny.
+    let mut packets_file = tokio::fs::File::from_std(tempfile::tempfile()?);
+    let packets_writer = tokio::io::BufWriter::new(&mut packets_file);
+
     tokio::pin!(async_writer);
+    tokio::pin!(packets_writer);
 
-    let writer = AsyncWriteHack::default();
-    let mut pcap_writer = PcapWriter::new(writer)?;
-    pcap_writer
-        .get_mut()
-        .flush_downstream(&mut async_writer)
-        .await?;
+    let mut writer = AsyncWriteHack::default();
+    let mut pcap_writer = PcapWriter::new(&mut writer)?;
+    writer.flush_downstream(&mut async_writer).await?;
 
-    while let Some(v) = cap.next().await {
-        let (v, meta) = v?;
+    loop {
+        tokio::select! {
+            v = cap.select_next_some() => {
+                let (v, meta) = v?;
 
-        pcap_writer.on_packet(
-            wire_blahaj::ts_to_nanos(meta.time),
-            meta.if_index as u32,
-            &v,
-        )?;
-        pcap_writer
-            .get_mut()
-            .flush_downstream(&mut async_writer)
-            .await?;
-        async_writer.flush().await?;
+                pcap_writer.on_packet(
+                    &mut writer,
+                    wire_blahaj::ts_to_nanos(meta.time),
+                    meta.if_index as u32,
+                    &v,
+                )?;
+                writer.flush_downstream(&mut packets_writer).await?;
 
-        tracing::debug!("pakit {} {}", meta.time, hexdump::HexDumper::new(&v));
-        // pcap_writer.on_packet(ts);
+                tracing::debug!("pakit {} {}", meta.time, hexdump::HexDumper::new(&v));
+                // pcap_writer.on_packet(ts);
+            }
+            _ = terminate.cancelled() => {
+                packets_writer.flush().await?;
+                drop(packets_writer);
+
+                packets_file.seek(std::io::SeekFrom::Start(0)).await?;
+                tokio::io::copy(&mut packets_file, &mut async_writer).await?;
+
+                break Ok(());
+            }
+        };
     }
-    Ok(())
 }
 
 fn do_capture(output_file: PathBuf, args: Vec<String>) -> Result<(), Error> {
     unsafe {
-        run_in_ns(args, |fd| {
+        run_in_ns(args, |child_pidfd, fd| {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap();
-            match rt.block_on(start_capture(output_file, fd)) {
+            match rt.block_on(async move {
+                let cancel = CancellationToken::new();
+                let child_pidfd = AsyncFd::new(child_pidfd)?;
+
+                let _join_handle = tokio::spawn({
+                    let cancel = cancel.clone();
+                    async move {
+                        loop {
+                            tokio::select! {
+                                _ = cancel.cancelled() => {
+                                    break;
+                                }
+                                _ = tokio::signal::ctrl_c() => {
+                                    cancel.cancel();
+                                }
+                                _g = child_pidfd.readable() => {
+                                    cancel.cancel();
+                                }
+                            };
+                        }
+                    }
+                });
+
+                start_capture(output_file, fd, cancel).await
+            }) {
                 Ok(_) => {}
                 Err(e) => tracing::error!("Error capturing: {e}"),
             }

@@ -16,7 +16,7 @@
 //! and <https://github.com/giuseppe/become-root/blob/master/main.c>
 
 use std::{
-    ffi::CString,
+    ffi::{c_int, c_uint, CString},
     fs::{self, File, OpenOptions},
     io::{self, Error as IoError},
     io::{IoSlice, IoSliceMut, Read, Write},
@@ -32,7 +32,7 @@ use nix::{
     cmsg_space,
     errno::Errno,
     ioctl_readwrite_bad,
-    libc::{self, prctl, PR_SET_NO_NEW_PRIVS},
+    libc::{self, prctl, SYS_pidfd_open, PIDFD_NONBLOCK, PR_SET_NO_NEW_PRIVS},
     sched::{unshare, CloneFlags},
     sys::{
         socket::{
@@ -175,14 +175,20 @@ fn send_1_and_close(fd: RawFd) -> Result<(), IoError> {
     Ok(())
 }
 
+/// Syscall wrapper for `pidfd_open` since glibc does not have one.
+fn pidfd_open(pid: Pid, flags: c_uint) -> c_int {
+    unsafe { nix::libc::syscall(SYS_pidfd_open, pid, flags) as i32 }
+}
+
 fn parent(
     child_pid: Pid,
     sock: RawFd,
     notify_child_ready_pipe: RawFd,
     notify_net_ready_pipe: RawFd,
     notify_close_pipe: RawFd,
-    callback: impl FnOnce(RawFd),
+    callback: impl FnOnce(RawFd, RawFd),
 ) -> Result<(), Error> {
+    let child_pidfd = Errno::result(pidfd_open(child_pid, PIDFD_NONBLOCK)).context("pidfd_open")?;
     tracing::debug!("parent notified, starting networking");
     wait_for_1_and_close(notify_child_ready_pipe)?;
 
@@ -220,7 +226,7 @@ fn parent(
     }?;
 
     tracing::debug!("got capture fd: {fd}");
-    callback(fd);
+    callback(child_pidfd, fd);
 
     networking.wait().context("wait for slirp4netns")?;
 
@@ -306,10 +312,14 @@ fn child(
 /// providing NAT.
 ///
 /// The provided callback will be invoked in the parent process when the child
-/// is started, with a fd for the raw capture socket.
+/// is started, with a pidfd for the child process and fd for the raw capture
+/// socket respectively.
 ///
 /// Safety: cannot be run from a (currently) multithreaded process.
-pub unsafe fn run_in_ns(args: Vec<String>, callback: impl FnOnce(RawFd)) -> Result<(), DynError> {
+pub unsafe fn run_in_ns(
+    args: Vec<String>,
+    callback: impl FnOnce(RawFd, RawFd),
+) -> Result<(), DynError> {
     // ceci n'est pas une pipe
     let (parent_sock, child_sock) = socketpair(
         AddressFamily::Unix,
