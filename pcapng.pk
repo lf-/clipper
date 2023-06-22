@@ -2,9 +2,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-fun max = (uoff64 a, uoff64 b) uoff64: {
-    return a > b ? a : b;
-};
+// Poke pickle for pcapng <https://www.ietf.org/staging/draft-tuexen-opsawg-pcapng-02.html>
 
 type PCAPNG_Option = struct {
     uint16 typ : typ != 0UH;
@@ -15,21 +13,97 @@ type PCAPNG_Option = struct {
 
 type PCAPNG_Options = struct {
     PCAPNG_Option[] opts;
-    byte[4] end == [0UB, 0UB, 0UB, 0UB];
+    byte[4] endofopt = [0UB, 0UB, 0UB, 0UB];
 };
 
+// Section Header Block
 type PCAPNG_Shb = struct {
     uint32 typ == 0x0a0d0d0a;
     offset<uint32, B> len;
+
     byte[4] byte_order == [0x4dUB, 0x3cUB, 0x2bUB, 0x1aUB];
     uint16 major == 1;
     uint16 minor == 0;
     uint64 section_len;
 
-    PCAPNG_Options opts;
+    if (len > OFFSET + len'size)
+        PCAPNG_Options opts;
+
     offset<uint32, B> len2 == len;
     byte[0] assertion : len == OFFSET;
 };
 
+// Interface Description Block
 type PCAPNG_Idb = struct {
+    uint32 typ == 0x01;
+    offset<uint32, B> len;
+
+    uint16 link_type;
+    uint16 reserved == 0x0;
+    uint32 snaplen;
+
+    if (len > OFFSET + len'size)
+        PCAPNG_Options opts;
+
+    offset<uint32, B> len2 == len;
+    byte[0] assertion : len == OFFSET;
+};
+
+// Enhanced Packet Block
+type PCAPNG_Epb = struct {
+    uint32 typ == 0x06;
+    offset<uint32, B> len;
+    uint32 iface_id;
+
+    // what the hell guys
+    uint32 ts_high;
+    uint32 ts_low;
+
+    computed uint64 timestamp;
+    method get_timestamp = uint64: {
+        return ts_high ::: ts_low;
+    }
+    method set_timestamp = (uint64 ts) void: {
+        ts_high = (ts .>> 32) & 0xffff_ffff;
+        ts_low = ts & 0xffff_ffff;
+    }
+
+    offset<uint32, B> captured_packet_length;
+    offset<uint32, B> orig_packet_length;
+
+    byte[0] end_of_data @ OFFSET + captured_packet_length + alignto(captured_packet_length, 4#B);
+    if (len > OFFSET + len'size)
+        PCAPNG_Options opts;
+
+    offset<uint32, B> len2 == len;
+    byte[0] assertion : len == OFFSET;
+};
+
+type PCAPNG_Dsb = struct {
+    uint32 typ == 0x0a;
+    offset<uint32, B> len;
+
+    uint32 secrets_type;
+    offset<uint32, B> secrets_len;
+
+    byte[0] end_of_data @ OFFSET + secrets_len + alignto(secrets_len, 4#B);
+    if (len > OFFSET + len'size)
+        PCAPNG_Options opts;
+
+    offset<uint32, B> len2 == len;
+    byte[0] assertion : len == OFFSET;
+};
+
+type PCAPNG_Unk = struct {
+    uint32 typ;
+    offset<uint32, B> len;
+    offset<uint32, B> len2 == len @ len - len'size;
+};
+
+type PCAPNG_Block = union {
+    PCAPNG_Shb shb;
+    PCAPNG_Idb idb;
+    PCAPNG_Epb epb;
+    PCAPNG_Dsb dsb;
+    PCAPNG_Unk unk;
 };
