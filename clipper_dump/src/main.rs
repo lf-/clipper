@@ -19,7 +19,7 @@ use wire_blahaj::{
 
 use std::{
     fmt::Debug,
-    os::fd::RawFd,
+    os::fd::{FromRawFd, OwnedFd, RawFd},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
@@ -159,7 +159,7 @@ fn do_capture(output_file: PathBuf, args: Vec<String>) -> Result<(), Error> {
                 .unwrap();
             match rt.block_on(async move {
                 let cancel = CancellationToken::new();
-                let child_pidfd = AsyncFd::new(child_pidfd)?;
+                let child_pidfd = AsyncFd::new(OwnedFd::from_raw_fd(child_pidfd))?;
 
                 let _join_handle = tokio::spawn({
                     let cancel = cancel.clone();
