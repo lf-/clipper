@@ -13,8 +13,8 @@
 use std::{collections::BTreeMap, io, pin::Pin};
 
 use pcap_parser::{
-    EnhancedPacketBlock, InterfaceDescriptionBlock, Linktype, OptionCode, PcapNGOption,
-    SectionHeaderBlock, ToVec,
+    DecryptionSecretsBlock, EnhancedPacketBlock, InterfaceDescriptionBlock, Linktype, OptionCode,
+    PcapNGOption, SecretsType, SectionHeaderBlock, ToVec,
 };
 use tokio::io::AsyncWriteExt;
 
@@ -152,6 +152,22 @@ impl PcapWriter {
         };
 
         writer.write_all(&epb.to_vec().unwrap())?;
+
+        Ok(())
+    }
+
+    pub fn on_dsb(&mut self, writer: &mut impl io::Write, dsb: &[u8]) -> Result<(), io::Error> {
+        let mut dsb = DecryptionSecretsBlock {
+            block_type: 0,
+            block_len1: 0,
+            secrets_type: SecretsType::TlsKeyLog,
+            secrets_len: dsb.len() as u32,
+            data: dsb,
+            options: Vec::new(),
+            block_len2: 0,
+        };
+
+        writer.write_all(&dsb.to_vec().unwrap())?;
 
         Ok(())
     }

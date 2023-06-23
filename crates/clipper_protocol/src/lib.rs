@@ -7,3 +7,5 @@ pub mod proto {
         include!(concat!(env!("OUT_DIR"), "/clipper.embedding.rs"));
     }
 }
+
+pub const SOCKET_ENV_VAR: &'static str = "CLIPPERD_SOCK";

@@ -8,9 +8,11 @@
 
 use clipper_protocol::proto::embedding::{
     clipper_embedding_server::{ClipperEmbedding, ClipperEmbeddingServer},
-    NewKeysReq, NewKeysResp,
+    new_keys_req::Keys,
+    NewKeysReq, NewKeysResp, TlsKeys,
 };
 use futures::StreamExt;
+use net_decode::key_db::{ClientRandom, KeyDB, Secret};
 use tokio::{
     fs::OpenOptions as TokioOpenOptions,
     io::{unix::AsyncFd, AsyncSeekExt, AsyncWriteExt},
@@ -28,11 +30,14 @@ use std::{
         unix::net::UnixListener,
     },
     path::{Path, PathBuf},
+    sync::{Arc, RwLock},
 };
 
 use crate::Error;
 
-struct EmbeddingServer {}
+struct EmbeddingServer {
+    key_db: Arc<RwLock<KeyDB>>,
+}
 
 #[tonic::async_trait]
 impl ClipperEmbedding for EmbeddingServer {
@@ -41,6 +46,26 @@ impl ClipperEmbedding for EmbeddingServer {
         request: tonic::Request<NewKeysReq>,
     ) -> Result<tonic::Response<NewKeysResp>, tonic::Status> {
         tracing::debug!("embedding server got keys: {:?}", &request);
+
+        let request = request.into_inner();
+        match request.keys {
+            Some(Keys::TlsKeys(TlsKeys {
+                label,
+                client_random,
+                secret,
+            })) => {
+                let mut lock = self.key_db.write().unwrap();
+                lock.on_secret(
+                    ClientRandom(client_random),
+                    label
+                        .as_bytes()
+                        .try_into()
+                        .map_err(|_| tonic::Status::invalid_argument("bad secret type"))?,
+                    Secret(secret),
+                )
+            }
+            None => {}
+        }
 
         Ok(Response::new(NewKeysResp {
             ok: true,
@@ -78,9 +103,13 @@ async fn start_capture(
     let mut pcap_writer = PcapWriter::new(&mut writer)?;
     writer.flush_downstream(&mut async_writer).await?;
 
+    let key_db: Arc<RwLock<KeyDB>> = Default::default();
+
     let listener = tokio::net::UnixListener::from_std(listener)?;
     let listener_stream = tokio_stream::wrappers::UnixListenerStream::new(listener);
-    let embedding_server = EmbeddingServer {};
+    let embedding_server = EmbeddingServer {
+        key_db: key_db.clone(),
+    };
 
     let mut server_join = tokio::spawn(
         tonic::transport::Server::builder()
@@ -101,12 +130,14 @@ async fn start_capture(
                 )?;
                 writer.flush_downstream(&mut packets_writer).await?;
 
-                tracing::debug!("pakit {} {}", meta.time, hexdump::HexDumper::new(&v));
-                // pcap_writer.on_packet(ts);
+                tracing::trace!("pakit {} {}", meta.time, hexdump::HexDumper::new(&v));
             }
             _ = terminate.cancelled() => {
                 packets_writer.flush().await?;
                 drop(packets_writer);
+
+                pcap_writer.on_dsb(&mut writer, &key_db.read().unwrap().to_key_log())?;
+                writer.flush_downstream(&mut async_writer).await?;
 
                 packets_file.seek(std::io::SeekFrom::Start(0)).await?;
                 tokio::io::copy(&mut packets_file, &mut async_writer).await?;
@@ -131,10 +162,15 @@ struct ClipperLaunchHooks {
     unix_listener: Option<UnixListener>,
 }
 
+impl ClipperLaunchHooks {
+    fn sock(&self) -> PathBuf {
+        self.unix_sock_dir.join(SOCK_NAME)
+    }
+}
+
 impl LaunchHooks for ClipperLaunchHooks {
     fn parent_after_fork(&mut self) {
-        let listener =
-            UnixListener::bind(self.unix_sock_dir.join(SOCK_NAME)).expect("bind unix sock");
+        let listener = UnixListener::bind(self.sock()).expect("bind unix sock");
         listener.set_nonblocking(true).expect("set nonblocking");
         self.unix_listener = Some(listener);
     }
@@ -177,6 +213,13 @@ impl LaunchHooks for ClipperLaunchHooks {
             Ok(_) => {}
             Err(e) => tracing::error!("Error capturing: {e}"),
         }
+    }
+
+    fn add_env(&self) -> Vec<(String, String)> {
+        vec![(
+            clipper_protocol::SOCKET_ENV_VAR.to_string(),
+            self.sock().to_str().unwrap().to_string(),
+        )]
     }
 }
 

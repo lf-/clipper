@@ -6,7 +6,7 @@
 //!
 //! <https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html>
 
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, io::Write};
 
 // FIXME: probably should move into some common crate, this is duplicated in
 // clipper_inject::log_target.
@@ -28,11 +28,17 @@ impl fmt::Debug for Hex<'_> {
 
 /// To avoid any unintended coupling to rustls, we use our own type for this.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct ClientRandom(Vec<u8>);
+pub struct ClientRandom(pub Vec<u8>);
 
 impl fmt::Debug for ClientRandom {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ClientRandom").field(&Hex(&self.0)).finish()
+    }
+}
+
+impl fmt::Display for ClientRandom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", Hex(&self.0))
     }
 }
 
@@ -48,6 +54,12 @@ pub struct Secret(pub Vec<u8>);
 impl fmt::Debug for Secret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Secret").field(&Hex(&self.0)).finish()
+    }
+}
+
+impl fmt::Display for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", Hex(&self.0))
     }
 }
 
@@ -78,6 +90,24 @@ impl TryFrom<&[u8]> for SecretType {
     }
 }
 
+impl fmt::Display for SecretType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SecretType::Tls12ClientMasterSecret => write!(f, "CLIENT_RANDOM"),
+            SecretType::ClientEarlyTrafficSecret => write!(f, "CLIENT_EARLY_TRAFFIC_SECRET"),
+            SecretType::ClientHandshakeTrafficSecret => {
+                write!(f, "CLIENT_HANDSHAKE_TRAFFIC_SECRET")
+            }
+            SecretType::ServerHandshakeTrafficSecret => {
+                write!(f, "SERVER_HANDSHAKE_TRAFFIC_SECRET")
+            }
+            SecretType::ClientTrafficSecret0 => write!(f, "CLIENT_TRAFFIC_SECRET_0"),
+            SecretType::ServerTrafficSecret0 => write!(f, "SERVER_TRAFFIC_SECRET_0"),
+            SecretType::ExporterSecret => write!(f, "EXPORTER_SECRET"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConnectionKeys {
     keys: Vec<(SecretType, Secret)>,
@@ -100,6 +130,20 @@ impl KeyDB {
             .cloned()
     }
 
+    pub fn on_secret(
+        &mut self,
+        client_random: ClientRandom,
+        secret_type: SecretType,
+        secret: Secret,
+    ) {
+        self.keys
+            .entry(client_random)
+            .and_modify(|e| e.keys.push((secret_type, secret.clone())))
+            .or_insert_with(move || ConnectionKeys {
+                keys: vec![(secret_type, secret)],
+            });
+    }
+
     pub fn load_key_log(&mut self, key_log: &[u8]) {
         let do_line = |line: &[u8]| -> Result<_, Box<dyn std::error::Error>> {
             if line.starts_with(b"#") {
@@ -118,16 +162,24 @@ impl KeyDB {
             Ok((ty, client_random, secret))
         };
 
+        // FIXME: this is not compliant, should accept \r\n also.
         for line in key_log.split(|&b| b == b'\n') {
             if let Ok((ty, client_random, secret)) = do_line(line) {
-                self.keys
-                    .entry(ClientRandom(client_random))
-                    .and_modify(|e| e.keys.push((ty, Secret(secret.clone()))))
-                    .or_insert_with(move || ConnectionKeys {
-                        keys: vec![(ty, Secret(secret.clone()))],
-                    });
+                self.on_secret(ClientRandom(client_random), ty, Secret(secret));
             }
         }
+    }
+
+    pub fn to_key_log(&self) -> Vec<u8> {
+        let mut log = Vec::new();
+
+        for (random, secrets) in &self.keys {
+            for (ty, secret) in &secrets.keys {
+                writeln!(log, "{} {} {}", ty, random, secret).unwrap();
+            }
+        }
+
+        log
     }
 }
 

@@ -443,6 +443,7 @@ dependencies = [
 name = "clipper_inject"
 version = "0.1.0"
 dependencies = [
+ "clipper_protocol",
  "ctor",
  "frida-gum",
  "hex",
@@ -451,6 +452,10 @@ dependencies = [
  "regex",
  "rustc-demangle",
  "thiserror",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2356,6 +2361,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
 dependencies = [
  "cfg-if",
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",

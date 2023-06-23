@@ -13,6 +13,7 @@ crate_type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clipper_protocol = { version = "0.1.0", path = "../crates/clipper_protocol" }
 ctor = "0.2.2"
 # auto-download is deeply personally offensive, however, it is way faster to
 # get working than to use nix (which will make it impossible to inject to Arch
@@ -24,5 +25,9 @@ libc = "0.2.145"
 regex = "1.8.4"
 rustc-demangle = { version = "0.1.23", features = ["std"] }
 thiserror = "1.0.40"
+tokio = { version = "1.28.2", features = ["net"] }
+tokio-util = "0.7.8"
+tonic = "0.9.2"
+tower = "0.4.13"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

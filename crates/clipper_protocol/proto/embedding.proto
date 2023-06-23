@@ -5,14 +5,17 @@
 syntax = "proto3";
 package clipper.embedding;
 
-enum KeyType {
-    TLS = 0;
+message TLSKeys {
+    string label = 1;
+    bytes client_random = 2;
+    bytes secret = 3;
 };
 
 // New keys were received.
 message NewKeysReq {
-    KeyType key_type = 1;
-    bytes keys = 2;
+    oneof Keys {
+        TLSKeys tls_keys = 1;
+    };
 };
 
 message NewKeysResp {

@@ -39,3 +39,28 @@ impl<W: std::io::Write + Send + Sync> LogTarget for LogTargetStream<W> {
             .expect("writing to log target");
     }
 }
+
+#[derive(Debug)]
+pub struct TLSKeyLogLine {
+    pub label: String,
+    pub client_random: Vec<u8>,
+    pub secret: Vec<u8>,
+}
+
+pub struct LogTargetMpsc(tokio::sync::mpsc::UnboundedSender<TLSKeyLogLine>);
+
+impl LogTargetMpsc {
+    pub fn new(sender: tokio::sync::mpsc::UnboundedSender<TLSKeyLogLine>) -> Self {
+        Self(sender)
+    }
+}
+
+impl LogTarget for LogTargetMpsc {
+    fn log(&self, label: &str, client_random: &[u8], secret: &[u8]) {
+        let _ = self.0.send(TLSKeyLogLine {
+            label: label.to_string(),
+            client_random: client_random.to_vec(),
+            secret: secret.to_vec(),
+        });
+    }
+}

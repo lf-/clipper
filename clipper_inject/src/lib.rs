@@ -9,16 +9,37 @@
 use std::{fs::OpenOptions, ops::Deref};
 
 use frida_gum::Module;
+use log_target::LogTarget;
 
 use crate::{
     hooks::{init_hooks, HookService, GUM},
-    log_target::{LogTargetStream, LOG_TARGET},
+    log_target::{LogTargetMpsc, LogTargetStream, LOG_TARGET},
 };
 use tracing_subscriber::{fmt, prelude::*};
 
 mod hooks;
 mod log_target;
 mod preload;
+mod rpc;
+
+fn pick_target() -> Box<dyn LogTarget> {
+    match std::env::var(clipper_protocol::SOCKET_ENV_VAR) {
+        Ok(v) => {
+            let sender = rpc::start(v.into());
+            Box::new(LogTargetMpsc::new(sender))
+        }
+        Err(_) => match std::env::var("SSLKEYLOGFILE") {
+            Ok(v) => Box::new(LogTargetStream::new(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(v)
+                    .expect("opening SSLKEYLOGFILE"),
+            )),
+            Err(_) => Box::new(LogTargetStream::new(std::io::stderr())),
+        },
+    }
+}
 
 #[ctor::ctor]
 unsafe fn init() {
@@ -39,20 +60,7 @@ unsafe fn init() {
         );
     }
 
-    match std::env::var("SSLKEYLOGFILE") {
-        Ok(v) => {
-            let _ = LOG_TARGET.set(Box::new(LogTargetStream::new(
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(v)
-                    .expect("opening SSLKEYLOGFILE"),
-            )));
-        }
-        Err(_) => {
-            let _ = LOG_TARGET.set(Box::new(LogTargetStream::new(std::io::stderr())));
-        }
-    }
+    let _ = LOG_TARGET.set(pick_target());
 
     let mut hook_service = HookService::new();
     init_hooks(&mut hook_service);
