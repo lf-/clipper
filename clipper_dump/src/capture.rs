@@ -25,6 +25,7 @@ use wire_blahaj::{
 };
 
 use std::{
+    fs::read_link,
     os::{
         fd::{FromRawFd, OwnedFd, RawFd},
         unix::net::UnixListener,
@@ -216,10 +217,22 @@ impl LaunchHooks for ClipperLaunchHooks {
     }
 
     fn add_env(&self) -> Vec<(String, String)> {
-        vec![(
+        let mut vars = vec![(
             clipper_protocol::SOCKET_ENV_VAR.to_string(),
             self.sock().to_str().unwrap().to_string(),
-        )]
+        )];
+
+        // FIXME: this will be very broken for packaging
+        let clipper_inject_so = read_link("/proc/self/exe")
+            .ok()
+            .and_then(|l| Some(l.parent()?.join("libclipper_inject.so")));
+        if let Some(so) = clipper_inject_so {
+            if so.exists() {
+                vars.push(("LD_PRELOAD".to_string(), so.to_str().unwrap().to_string()))
+            }
+        }
+
+        vars
     }
 }
 
