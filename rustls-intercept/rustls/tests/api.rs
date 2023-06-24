@@ -8,21 +8,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use rustls::client::{ResolvesClientCert, Resumption};
-use rustls::internal::msgs::base::Payload;
-use rustls::internal::msgs::codec::Codec;
-use rustls::server::{AllowAnyAnonymousOrAuthenticatedClient, ClientHello, ResolvesServerCert};
+use rustls_intercept::client::{ResolvesClientCert, Resumption};
+use rustls_intercept::internal::msgs::base::Payload;
+use rustls_intercept::internal::msgs::codec::Codec;
+use rustls_intercept::server::{AllowAnyAnonymousOrAuthenticatedClient, ClientHello, ResolvesServerCert};
 #[cfg(feature = "secret_extraction")]
-use rustls::ConnectionTrafficSecrets;
-use rustls::{
+use rustls_intercept::ConnectionTrafficSecrets;
+use rustls_intercept::{
     sign, CertificateError, ConnectionCommon, Error, KeyLog, PeerIncompatible, PeerMisbehaved,
     SideData,
 };
-use rustls::{CipherSuite, ProtocolVersion, SignatureScheme};
-use rustls::{ClientConfig, ClientConnection};
-use rustls::{ServerConfig, ServerConnection};
-use rustls::{Stream, StreamOwned};
-use rustls::{SupportedCipherSuite, ALL_CIPHER_SUITES};
+use rustls_intercept::{CipherSuite, ProtocolVersion, SignatureScheme};
+use rustls_intercept::{ClientConfig, ClientConnection};
+use rustls_intercept::{ServerConfig, ServerConnection};
+use rustls_intercept::{Stream, StreamOwned};
+use rustls_intercept::{SupportedCipherSuite, ALL_CIPHER_SUITES};
 
 mod common;
 use crate::common::*;
@@ -38,7 +38,7 @@ fn alpn_test_error(
 
     let server_config = Arc::new(server_config);
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let mut client_config = make_client_config_with_versions(KeyType::Rsa, &[version]);
         client_config.alpn_protocols = client_protos.clone();
 
@@ -94,17 +94,17 @@ fn alpn() {
 }
 
 fn version_test(
-    client_versions: &[&'static rustls::SupportedProtocolVersion],
-    server_versions: &[&'static rustls::SupportedProtocolVersion],
+    client_versions: &[&'static rustls_intercept::SupportedProtocolVersion],
+    server_versions: &[&'static rustls_intercept::SupportedProtocolVersion],
     result: Option<ProtocolVersion>,
 ) {
     let client_versions = if client_versions.is_empty() {
-        rustls::ALL_VERSIONS
+        rustls_intercept::ALL_VERSIONS
     } else {
         client_versions
     };
     let server_versions = if server_versions.is_empty() {
-        rustls::ALL_VERSIONS
+        rustls_intercept::ALL_VERSIONS
     } else {
         server_versions
     };
@@ -140,39 +140,39 @@ fn versions() {
     #[cfg(feature = "tls12")]
     version_test(
         &[],
-        &[&rustls::version::TLS12],
+        &[&rustls_intercept::version::TLS12],
         Some(ProtocolVersion::TLSv1_2),
     );
 
     // client 1.2, server default -> 1.2
     #[cfg(feature = "tls12")]
     version_test(
-        &[&rustls::version::TLS12],
+        &[&rustls_intercept::version::TLS12],
         &[],
         Some(ProtocolVersion::TLSv1_2),
     );
 
     // client 1.2, server 1.3 -> fail
     #[cfg(feature = "tls12")]
-    version_test(&[&rustls::version::TLS12], &[&rustls::version::TLS13], None);
+    version_test(&[&rustls_intercept::version::TLS12], &[&rustls_intercept::version::TLS13], None);
 
     // client 1.3, server 1.2 -> fail
     #[cfg(feature = "tls12")]
-    version_test(&[&rustls::version::TLS13], &[&rustls::version::TLS12], None);
+    version_test(&[&rustls_intercept::version::TLS13], &[&rustls_intercept::version::TLS12], None);
 
     // client 1.3, server 1.2+1.3 -> 1.3
     #[cfg(feature = "tls12")]
     version_test(
-        &[&rustls::version::TLS13],
-        &[&rustls::version::TLS12, &rustls::version::TLS13],
+        &[&rustls_intercept::version::TLS13],
+        &[&rustls_intercept::version::TLS12, &rustls_intercept::version::TLS13],
         Some(ProtocolVersion::TLSv1_3),
     );
 
     // client 1.2+1.3, server 1.2 -> 1.2
     #[cfg(feature = "tls12")]
     version_test(
-        &[&rustls::version::TLS13, &rustls::version::TLS12],
-        &[&rustls::version::TLS12],
+        &[&rustls_intercept::version::TLS13, &rustls_intercept::version::TLS12],
+        &[&rustls_intercept::version::TLS12],
         Some(ProtocolVersion::TLSv1_2),
     );
 }
@@ -212,9 +212,9 @@ fn config_builder_for_client_rejects_empty_cipher_suites() {
 fn config_builder_for_client_rejects_incompatible_cipher_suites() {
     assert_eq!(
         ClientConfig::builder()
-            .with_cipher_suites(&[rustls::cipher_suite::TLS13_AES_256_GCM_SHA384])
+            .with_cipher_suites(&[rustls_intercept::cipher_suite::TLS13_AES_256_GCM_SHA384])
             .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS12])
+            .with_protocol_versions(&[&rustls_intercept::version::TLS12])
             .err(),
         Some(Error::General("no usable cipher suites configured".into()))
     );
@@ -249,9 +249,9 @@ fn config_builder_for_server_rejects_empty_cipher_suites() {
 fn config_builder_for_server_rejects_incompatible_cipher_suites() {
     assert_eq!(
         ServerConfig::builder()
-            .with_cipher_suites(&[rustls::cipher_suite::TLS13_AES_256_GCM_SHA384])
+            .with_cipher_suites(&[rustls_intercept::cipher_suite::TLS13_AES_256_GCM_SHA384])
             .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS12])
+            .with_protocol_versions(&[&rustls_intercept::version::TLS12])
             .err(),
         Some(Error::General("no usable cipher suites configured".into()))
     );
@@ -261,7 +261,7 @@ fn config_builder_for_server_rejects_incompatible_cipher_suites() {
 fn buffered_client_data_sent() {
     let server_config = Arc::new(make_server_config(KeyType::Rsa));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(KeyType::Rsa, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -280,7 +280,7 @@ fn buffered_client_data_sent() {
 fn buffered_server_data_sent() {
     let server_config = Arc::new(make_server_config(KeyType::Rsa));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(KeyType::Rsa, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -299,7 +299,7 @@ fn buffered_server_data_sent() {
 fn buffered_both_data_sent() {
     let server_config = Arc::new(make_server_config(KeyType::Rsa));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(KeyType::Rsa, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -334,7 +334,7 @@ fn buffered_both_data_sent() {
 #[test]
 fn client_can_get_server_cert() {
     for kt in ALL_KEY_TYPES.iter() {
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config, make_server_config(*kt));
@@ -350,7 +350,7 @@ fn client_can_get_server_cert() {
 fn client_can_get_server_cert_after_resumption() {
     for kt in ALL_KEY_TYPES.iter() {
         let server_config = make_server_config(*kt);
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config.clone(), server_config.clone());
@@ -374,7 +374,7 @@ fn server_can_get_client_cert() {
     for kt in ALL_KEY_TYPES.iter() {
         let server_config = Arc::new(make_server_config_with_mandatory_client_auth(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -391,7 +391,7 @@ fn server_can_get_client_cert_after_resumption() {
     for kt in ALL_KEY_TYPES.iter() {
         let server_config = Arc::new(make_server_config_with_mandatory_client_auth(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let client_config = Arc::new(client_config);
             let (mut client, mut server) =
@@ -415,12 +415,12 @@ fn test_config_builders_debug() {
         "ConfigBuilder<ServerConfig, _> { state: WantsCipherSuites(()) }",
         format!("{:?}", b)
     );
-    let b = b.with_cipher_suites(&[rustls::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256]);
+    let b = b.with_cipher_suites(&[rustls_intercept::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256]);
     assert_eq!("ConfigBuilder<ServerConfig, _> { state: WantsKxGroups { cipher_suites: [TLS13_CHACHA20_POLY1305_SHA256] } }", format!("{:?}", b));
-    let b = b.with_kx_groups(&[&rustls::kx_group::X25519]);
+    let b = b.with_kx_groups(&[&rustls_intercept::kx_group::X25519]);
     assert_eq!("ConfigBuilder<ServerConfig, _> { state: WantsVersions { cipher_suites: [TLS13_CHACHA20_POLY1305_SHA256], kx_groups: [X25519] } }", format!("{:?}", b));
     let b = b
-        .with_protocol_versions(&[&rustls::version::TLS13])
+        .with_protocol_versions(&[&rustls_intercept::version::TLS13])
         .unwrap();
     let b = b.with_no_client_auth();
     assert_eq!("ConfigBuilder<ServerConfig, _> { state: WantsServerCert { cipher_suites: [TLS13_CHACHA20_POLY1305_SHA256], kx_groups: [X25519], versions: [TLSv1_3], verifier: dyn ClientCertVerifier } }", format!("{:?}", b));
@@ -430,12 +430,12 @@ fn test_config_builders_debug() {
         "ConfigBuilder<ClientConfig, _> { state: WantsCipherSuites(()) }",
         format!("{:?}", b)
     );
-    let b = b.with_cipher_suites(&[rustls::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256]);
+    let b = b.with_cipher_suites(&[rustls_intercept::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256]);
     assert_eq!("ConfigBuilder<ClientConfig, _> { state: WantsKxGroups { cipher_suites: [TLS13_CHACHA20_POLY1305_SHA256] } }", format!("{:?}", b));
-    let b = b.with_kx_groups(&[&rustls::kx_group::X25519]);
+    let b = b.with_kx_groups(&[&rustls_intercept::kx_group::X25519]);
     assert_eq!("ConfigBuilder<ClientConfig, _> { state: WantsVersions { cipher_suites: [TLS13_CHACHA20_POLY1305_SHA256], kx_groups: [X25519] } }", format!("{:?}", b));
     let b = b
-        .with_protocol_versions(&[&rustls::version::TLS13])
+        .with_protocol_versions(&[&rustls_intercept::version::TLS13])
         .unwrap();
     assert_eq!("ConfigBuilder<ClientConfig, _> { state: WantsVerifier { cipher_suites: [TLS13_CHACHA20_POLY1305_SHA256], kx_groups: [X25519], versions: [TLSv1_3] } }", format!("{:?}", b));
 }
@@ -459,7 +459,7 @@ fn server_allow_any_anonymous_or_authenticated_client() {
             .unwrap();
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = if client_cert_chain.is_some() {
                 make_client_config_with_versions_with_auth(kt, &[version])
             } else {
@@ -485,7 +485,7 @@ fn server_close_notify() {
     let kt = KeyType::Rsa;
     let server_config = Arc::new(make_server_config_with_mandatory_client_auth(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions_with_auth(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -524,7 +524,7 @@ fn client_close_notify() {
     let kt = KeyType::Rsa;
     let server_config = Arc::new(make_server_config_with_mandatory_client_auth(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions_with_auth(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -563,7 +563,7 @@ fn server_closes_uncleanly() {
     let kt = KeyType::Rsa;
     let server_config = Arc::new(make_server_config(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -606,7 +606,7 @@ fn client_closes_uncleanly() {
     let kt = KeyType::Rsa;
     let server_config = Arc::new(make_server_config(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -843,7 +843,7 @@ fn client_with_sni_disabled_does_not_send_sni() {
         server_config.cert_resolver = Arc::new(ServerCheckNoSNI {});
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config.enable_sni = false;
 
@@ -862,7 +862,7 @@ fn client_checks_server_certificate_with_given_name() {
     for kt in ALL_KEY_TYPES.iter() {
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let mut client = ClientConnection::new(
                 Arc::new(client_config),
@@ -961,7 +961,7 @@ fn client_cert_resolve() {
             ],
         };
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let expected_sigschemes = match version.version {
                 ProtocolVersion::TLSv1_2 => vec![
                     SignatureScheme::ECDSA_NISTP384_SHA384,
@@ -1010,7 +1010,7 @@ fn client_auth_works() {
     for kt in ALL_KEY_TYPES.iter() {
         let server_config = Arc::new(make_server_config_with_mandatory_client_auth(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -1240,7 +1240,7 @@ where
     pub writevs: Vec<Vec<usize>>,
     fail_ok: bool,
     pub short_writes: bool,
-    pub last_error: Option<rustls::Error>,
+    pub last_error: Option<rustls_intercept::Error>,
 }
 
 impl<'a, C, S> OtherSession<'a, C, S>
@@ -1708,7 +1708,7 @@ fn make_disjoint_suite_configs() -> (ClientConfig, ServerConfig) {
     let server_config = finish_server_config(
         kt,
         ServerConfig::builder()
-            .with_cipher_suites(&[rustls::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256])
+            .with_cipher_suites(&[rustls_intercept::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256])
             .with_safe_default_kx_groups()
             .with_safe_default_protocol_versions()
             .unwrap(),
@@ -1717,7 +1717,7 @@ fn make_disjoint_suite_configs() -> (ClientConfig, ServerConfig) {
     let client_config = finish_client_config(
         kt,
         ClientConfig::builder()
-            .with_cipher_suites(&[rustls::cipher_suite::TLS13_AES_256_GCM_SHA384])
+            .with_cipher_suites(&[rustls_intercept::cipher_suite::TLS13_AES_256_GCM_SHA384])
             .with_safe_default_kx_groups()
             .with_safe_default_protocol_versions()
             .unwrap(),
@@ -1857,7 +1857,7 @@ fn server_complete_io_for_handshake_ending_with_alert() {
 #[test]
 fn server_exposes_offered_sni() {
     let kt = KeyType::Rsa;
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let mut client =
             ClientConnection::new(Arc::new(client_config), dns_name("second.testserver.com"))
@@ -1874,7 +1874,7 @@ fn server_exposes_offered_sni() {
 fn server_exposes_offered_sni_smashed_to_lowercase() {
     // webpki actually does this for us in its DnsName type
     let kt = KeyType::Rsa;
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let mut client =
             ClientConnection::new(Arc::new(client_config), dns_name("SECOND.TESTServer.com"))
@@ -1890,13 +1890,13 @@ fn server_exposes_offered_sni_smashed_to_lowercase() {
 #[test]
 fn server_exposes_offered_sni_even_if_resolver_fails() {
     let kt = KeyType::Rsa;
-    let resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let resolver = rustls_intercept::server::ResolvesServerCertUsingSni::new();
 
     let mut server_config = make_server_config(kt);
     server_config.cert_resolver = Arc::new(resolver);
     let server_config = Arc::new(server_config);
 
-    for version in rustls::ALL_VERSIONS {
+    for version in rustls_intercept::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let mut server = ServerConnection::new(Arc::clone(&server_config)).unwrap();
         let mut client =
@@ -1918,7 +1918,7 @@ fn server_exposes_offered_sni_even_if_resolver_fails() {
 #[test]
 fn sni_resolver_works() {
     let kt = KeyType::Rsa;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = rustls_intercept::server::ResolvesServerCertUsingSni::new();
     let signing_key = sign::RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
     resolver
@@ -1953,7 +1953,7 @@ fn sni_resolver_works() {
 #[test]
 fn sni_resolver_rejects_wrong_names() {
     let kt = KeyType::Rsa;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = rustls_intercept::server::ResolvesServerCertUsingSni::new();
     let signing_key = sign::RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -1985,7 +1985,7 @@ fn sni_resolver_rejects_wrong_names() {
 #[test]
 fn sni_resolver_lower_cases_configured_names() {
     let kt = KeyType::Rsa;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = rustls_intercept::server::ResolvesServerCertUsingSni::new();
     let signing_key = sign::RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -2012,7 +2012,7 @@ fn sni_resolver_lower_cases_configured_names() {
 fn sni_resolver_lower_cases_queried_names() {
     // actually, the handshake parser does this, but the effect is the same.
     let kt = KeyType::Rsa;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = rustls_intercept::server::ResolvesServerCertUsingSni::new();
     let signing_key = sign::RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -2038,7 +2038,7 @@ fn sni_resolver_lower_cases_queried_names() {
 #[test]
 fn sni_resolver_rejects_bad_certs() {
     let kt = KeyType::Rsa;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = rustls_intercept::server::ResolvesServerCertUsingSni::new();
     let signing_key = sign::RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -2052,7 +2052,7 @@ fn sni_resolver_rejects_bad_certs() {
         )
     );
 
-    let bad_chain = vec![rustls::Certificate(vec![0xa0])];
+    let bad_chain = vec![rustls_intercept::Certificate(vec![0xa0])];
     assert_eq!(
         Err(Error::General(
             "End-entity certificate in certificate chain is syntactically invalid".into()
@@ -2102,7 +2102,7 @@ fn do_exporter_test(client_config: ClientConfig, server_config: ServerConfig) {
 #[test]
 fn test_tls12_exporter() {
     for kt in ALL_KEY_TYPES.iter() {
-        let client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS12]);
+        let client_config = make_client_config_with_versions(*kt, &[&rustls_intercept::version::TLS12]);
         let server_config = make_server_config(*kt);
 
         do_exporter_test(client_config, server_config);
@@ -2112,7 +2112,7 @@ fn test_tls12_exporter() {
 #[test]
 fn test_tls13_exporter() {
     for kt in ALL_KEY_TYPES.iter() {
-        let client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS13]);
+        let client_config = make_client_config_with_versions(*kt, &[&rustls_intercept::version::TLS13]);
         let server_config = make_server_config(*kt);
 
         do_exporter_test(client_config, server_config);
@@ -2178,55 +2178,55 @@ fn find_suite(suite: CipherSuite) -> SupportedCipherSuite {
     panic!("find_suite given unsupported suite");
 }
 
-static TEST_CIPHERSUITES: &[(&rustls::SupportedProtocolVersion, KeyType, CipherSuite)] = &[
+static TEST_CIPHERSUITES: &[(&rustls_intercept::SupportedProtocolVersion, KeyType, CipherSuite)] = &[
     (
-        &rustls::version::TLS13,
+        &rustls_intercept::version::TLS13,
         KeyType::Rsa,
         CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
     ),
     (
-        &rustls::version::TLS13,
+        &rustls_intercept::version::TLS13,
         KeyType::Rsa,
         CipherSuite::TLS13_AES_256_GCM_SHA384,
     ),
     (
-        &rustls::version::TLS13,
+        &rustls_intercept::version::TLS13,
         KeyType::Rsa,
         CipherSuite::TLS13_AES_128_GCM_SHA256,
     ),
     #[cfg(feature = "tls12")]
     (
-        &rustls::version::TLS12,
+        &rustls_intercept::version::TLS12,
         KeyType::Ecdsa,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     ),
     #[cfg(feature = "tls12")]
     (
-        &rustls::version::TLS12,
+        &rustls_intercept::version::TLS12,
         KeyType::Rsa,
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     ),
     #[cfg(feature = "tls12")]
     (
-        &rustls::version::TLS12,
+        &rustls_intercept::version::TLS12,
         KeyType::Ecdsa,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     ),
     #[cfg(feature = "tls12")]
     (
-        &rustls::version::TLS12,
+        &rustls_intercept::version::TLS12,
         KeyType::Ecdsa,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
     ),
     #[cfg(feature = "tls12")]
     (
-        &rustls::version::TLS12,
+        &rustls_intercept::version::TLS12,
         KeyType::Rsa,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     ),
     #[cfg(feature = "tls12")]
     (
-        &rustls::version::TLS12,
+        &rustls_intercept::version::TLS12,
         KeyType::Rsa,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     ),
@@ -2331,7 +2331,7 @@ fn key_log_for_tls12() {
     let server_key_log = Arc::new(KeyLogToVec::new("server"));
 
     let kt = KeyType::Rsa;
-    let mut client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS12]);
+    let mut client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS12]);
     client_config.key_log = client_key_log.clone();
     let client_config = Arc::new(client_config);
 
@@ -2367,7 +2367,7 @@ fn key_log_for_tls13() {
     let server_key_log = Arc::new(KeyLogToVec::new("server"));
 
     let kt = KeyType::Rsa;
-    let mut client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+    let mut client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
     client_config.key_log = client_key_log.clone();
     let client_config = Arc::new(client_config);
 
@@ -2655,7 +2655,7 @@ fn vectored_write_with_slow_client() {
 }
 
 struct ServerStorage {
-    storage: Arc<dyn rustls::server::StoresServerSessions>,
+    storage: Arc<dyn rustls_intercept::server::StoresServerSessions>,
     put_count: AtomicUsize,
     get_count: AtomicUsize,
     take_count: AtomicUsize,
@@ -2664,7 +2664,7 @@ struct ServerStorage {
 impl ServerStorage {
     fn new() -> Self {
         Self {
-            storage: rustls::server::ServerSessionMemoryCache::new(1024),
+            storage: rustls_intercept::server::ServerSessionMemoryCache::new(1024),
             put_count: AtomicUsize::new(0),
             get_count: AtomicUsize::new(0),
             take_count: AtomicUsize::new(0),
@@ -2692,7 +2692,7 @@ impl fmt::Debug for ServerStorage {
     }
 }
 
-impl rustls::server::StoresServerSessions for ServerStorage {
+impl rustls_intercept::server::StoresServerSessions for ServerStorage {
     fn put(&self, key: Vec<u8>, value: Vec<u8>) -> bool {
         self.put_count
             .fetch_add(1, Ordering::SeqCst);
@@ -2718,24 +2718,24 @@ impl rustls::server::StoresServerSessions for ServerStorage {
 
 #[derive(Debug, Clone)]
 enum ClientStorageOp {
-    SetKxHint(rustls::ServerName, rustls::NamedGroup),
-    GetKxHint(rustls::ServerName, Option<rustls::NamedGroup>),
-    SetTls12Session(rustls::ServerName),
-    GetTls12Session(rustls::ServerName, bool),
-    RemoveTls12Session(rustls::ServerName),
-    InsertTls13Ticket(rustls::ServerName),
-    TakeTls13Ticket(rustls::ServerName, bool),
+    SetKxHint(rustls_intercept::ServerName, rustls_intercept::NamedGroup),
+    GetKxHint(rustls_intercept::ServerName, Option<rustls_intercept::NamedGroup>),
+    SetTls12Session(rustls_intercept::ServerName),
+    GetTls12Session(rustls_intercept::ServerName, bool),
+    RemoveTls12Session(rustls_intercept::ServerName),
+    InsertTls13Ticket(rustls_intercept::ServerName),
+    TakeTls13Ticket(rustls_intercept::ServerName, bool),
 }
 
 struct ClientStorage {
-    storage: Arc<dyn rustls::client::ClientSessionStore>,
+    storage: Arc<dyn rustls_intercept::client::ClientSessionStore>,
     ops: Mutex<Vec<ClientStorageOp>>,
 }
 
 impl ClientStorage {
     fn new() -> Self {
         Self {
-            storage: Arc::new(rustls::client::ClientSessionMemoryCache::new(1024)),
+            storage: Arc::new(rustls_intercept::client::ClientSessionMemoryCache::new(1024)),
             ops: Mutex::new(Vec::new()),
         }
     }
@@ -2757,8 +2757,8 @@ impl fmt::Debug for ClientStorage {
     }
 }
 
-impl rustls::client::ClientSessionStore for ClientStorage {
-    fn set_kx_hint(&self, server_name: &rustls::ServerName, group: rustls::NamedGroup) {
+impl rustls_intercept::client::ClientSessionStore for ClientStorage {
+    fn set_kx_hint(&self, server_name: &rustls_intercept::ServerName, group: rustls_intercept::NamedGroup) {
         self.ops
             .lock()
             .unwrap()
@@ -2767,7 +2767,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
             .set_kx_hint(server_name, group)
     }
 
-    fn kx_hint(&self, server_name: &rustls::ServerName) -> Option<rustls::NamedGroup> {
+    fn kx_hint(&self, server_name: &rustls_intercept::ServerName) -> Option<rustls_intercept::NamedGroup> {
         let rc = self.storage.kx_hint(server_name);
         self.ops
             .lock()
@@ -2778,8 +2778,8 @@ impl rustls::client::ClientSessionStore for ClientStorage {
 
     fn set_tls12_session(
         &self,
-        server_name: &rustls::ServerName,
-        value: rustls::client::Tls12ClientSessionValue,
+        server_name: &rustls_intercept::ServerName,
+        value: rustls_intercept::client::Tls12ClientSessionValue,
     ) {
         self.ops
             .lock()
@@ -2791,8 +2791,8 @@ impl rustls::client::ClientSessionStore for ClientStorage {
 
     fn tls12_session(
         &self,
-        server_name: &rustls::ServerName,
-    ) -> Option<rustls::client::Tls12ClientSessionValue> {
+        server_name: &rustls_intercept::ServerName,
+    ) -> Option<rustls_intercept::client::Tls12ClientSessionValue> {
         let rc = self.storage.tls12_session(server_name);
         self.ops
             .lock()
@@ -2804,7 +2804,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
         rc
     }
 
-    fn remove_tls12_session(&self, server_name: &rustls::ServerName) {
+    fn remove_tls12_session(&self, server_name: &rustls_intercept::ServerName) {
         self.ops
             .lock()
             .unwrap()
@@ -2815,8 +2815,8 @@ impl rustls::client::ClientSessionStore for ClientStorage {
 
     fn insert_tls13_ticket(
         &self,
-        server_name: &rustls::ServerName,
-        value: rustls::client::Tls13ClientSessionValue,
+        server_name: &rustls_intercept::ServerName,
+        value: rustls_intercept::client::Tls13ClientSessionValue,
     ) {
         self.ops
             .lock()
@@ -2828,8 +2828,8 @@ impl rustls::client::ClientSessionStore for ClientStorage {
 
     fn take_tls13_ticket(
         &self,
-        server_name: &rustls::ServerName,
-    ) -> Option<rustls::client::Tls13ClientSessionValue> {
+        server_name: &rustls_intercept::ServerName,
+    ) -> Option<rustls_intercept::client::Tls13ClientSessionValue> {
         let rc = self
             .storage
             .take_tls13_ticket(server_name);
@@ -2847,7 +2847,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
 #[test]
 fn tls13_stateful_resumption() {
     let kt = KeyType::Rsa;
-    let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+    let client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
     let client_config = Arc::new(client_config);
 
     let mut server_config = make_server_config(kt);
@@ -2902,11 +2902,11 @@ fn tls13_stateful_resumption() {
 #[test]
 fn tls13_stateless_resumption() {
     let kt = KeyType::Rsa;
-    let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+    let client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
     let client_config = Arc::new(client_config);
 
     let mut server_config = make_server_config(kt);
-    server_config.ticketer = rustls::Ticketer::new().unwrap();
+    server_config.ticketer = rustls_intercept::Ticketer::new().unwrap();
     let storage = Arc::new(ServerStorage::new());
     server_config.session_storage = storage.clone();
     let server_config = Arc::new(server_config);
@@ -3059,7 +3059,7 @@ fn early_data_can_be_rejected_by_server() {
 #[cfg(feature = "quic")]
 mod test_quic {
     use super::*;
-    use rustls::quic::{self, ConnectionCommon};
+    use rustls_intercept::quic::{self, ConnectionCommon};
 
     // Returns the sender's next secrets to use, or the receiver's error.
     fn step<L: SideData, R: SideData>(
@@ -3118,10 +3118,10 @@ mod test_quic {
         }
 
         let kt = KeyType::Rsa;
-        let mut client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+        let mut client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
         client_config.enable_early_data = true;
         let client_config = Arc::new(client_config);
-        let mut server_config = make_server_config_with_versions(kt, &[&rustls::version::TLS13]);
+        let mut server_config = make_server_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
         server_config.max_early_data_size = 0xffffffff;
         let server_config = Arc::new(server_config);
         let client_params = &b"client params"[..];
@@ -3270,7 +3270,7 @@ mod test_quic {
         assert!(step(&mut server, &mut client).is_err());
         assert_eq!(
             client.alert(),
-            Some(rustls::AlertDescription::BadCertificate)
+            Some(rustls_intercept::AlertDescription::BadCertificate)
         );
 
         // Key updates
@@ -3299,11 +3299,11 @@ mod test_quic {
         let server_params = &b"server params"[..];
 
         for &kt in ALL_KEY_TYPES.iter() {
-            let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+            let client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
             let client_config = Arc::new(client_config);
 
             let mut server_config =
-                make_server_config_with_versions(kt, &[&rustls::version::TLS13]);
+                make_server_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
             server_config.alpn_protocols = vec!["foo".into()];
             let server_config = Arc::new(server_config);
 
@@ -3327,7 +3327,7 @@ mod test_quic {
 
             assert_eq!(
                 server.alert(),
-                Some(rustls::AlertDescription::NoApplicationProtocol)
+                Some(rustls_intercept::AlertDescription::NoApplicationProtocol)
             );
         }
     }
@@ -3336,7 +3336,7 @@ mod test_quic {
     #[test]
     fn test_quic_no_tls13_error() {
         let mut client_config =
-            make_client_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS12]);
+            make_client_config_with_versions(KeyType::Ed25519, &[&rustls_intercept::version::TLS12]);
         client_config.alpn_protocols = vec!["foo".into()];
         let client_config = Arc::new(client_config);
 
@@ -3349,7 +3349,7 @@ mod test_quic {
         .is_err());
 
         let mut server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS12]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&rustls_intercept::version::TLS12]);
         server_config.alpn_protocols = vec!["foo".into()];
         let server_config = Arc::new(server_config);
 
@@ -3364,7 +3364,7 @@ mod test_quic {
     #[test]
     fn test_quic_invalid_early_data_size() {
         let mut server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS13]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&rustls_intercept::version::TLS13]);
         server_config.alpn_protocols = vec!["foo".into()];
 
         let cases = [
@@ -3392,7 +3392,7 @@ mod test_quic {
     #[test]
     fn test_quic_server_no_params_received() {
         let server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS13]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&rustls_intercept::version::TLS13]);
         let server_config = Arc::new(server_config);
 
         let mut server = quic::ServerConnection::new(
@@ -3403,12 +3403,12 @@ mod test_quic {
         .unwrap();
 
         use ring::rand::SecureRandom;
-        use rustls::internal::msgs::base::PayloadU16;
-        use rustls::internal::msgs::enums::{Compression, NamedGroup};
-        use rustls::internal::msgs::handshake::{
+        use rustls_intercept::internal::msgs::base::PayloadU16;
+        use rustls_intercept::internal::msgs::enums::{Compression, NamedGroup};
+        use rustls_intercept::internal::msgs::handshake::{
             ClientHelloPayload, HandshakeMessagePayload, KeyShareEntry, Random, SessionId,
         };
-        use rustls::{CipherSuite, HandshakeType, SignatureScheme};
+        use rustls_intercept::{CipherSuite, HandshakeType, SignatureScheme};
 
         let rng = ring::rand::SystemRandom::new();
         let mut random = [0; 32];
@@ -3455,17 +3455,17 @@ mod test_quic {
     #[test]
     fn test_quic_server_no_tls12() {
         let mut server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS13]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&rustls_intercept::version::TLS13]);
         server_config.alpn_protocols = vec!["foo".into()];
         let server_config = Arc::new(server_config);
 
         use ring::rand::SecureRandom;
-        use rustls::internal::msgs::base::PayloadU16;
-        use rustls::internal::msgs::enums::{Compression, NamedGroup};
-        use rustls::internal::msgs::handshake::{
+        use rustls_intercept::internal::msgs::base::PayloadU16;
+        use rustls_intercept::internal::msgs::enums::{Compression, NamedGroup};
+        use rustls_intercept::internal::msgs::handshake::{
             ClientHelloPayload, HandshakeMessagePayload, KeyShareEntry, Random, SessionId,
         };
-        use rustls::{CipherSuite, HandshakeType, SignatureScheme};
+        use rustls_intercept::{CipherSuite, HandshakeType, SignatureScheme};
 
         let rng = ring::rand::SystemRandom::new();
         let mut random = [0; 32];
@@ -3517,8 +3517,8 @@ mod test_quic {
 
     #[test]
     fn packet_key_api() {
-        use rustls::quic::{Keys, Version};
-        use rustls::Side;
+        use rustls_intercept::quic::{Keys, Version};
+        use rustls_intercept::Side;
 
         // Test vectors: https://www.rfc-editor.org/rfc/rfc9001.html#name-client-initial
         const CONNECTION_ID: &[u8] = &[0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
@@ -3704,8 +3704,8 @@ mod test_quic {
     #[test]
     fn test_quic_exporter() {
         for &kt in ALL_KEY_TYPES.iter() {
-            let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
-            let server_config = make_server_config_with_versions(kt, &[&rustls::version::TLS13]);
+            let client_config = make_client_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
+            let server_config = make_server_config_with_versions(kt, &[&rustls_intercept::version::TLS13]);
 
             do_exporter_test(client_config, server_config);
         }
@@ -3714,13 +3714,13 @@ mod test_quic {
 
 #[test]
 fn test_client_does_not_offer_sha1() {
-    use rustls::internal::msgs::{
+    use rustls_intercept::internal::msgs::{
         codec::Reader, handshake::HandshakePayload, message::MessagePayload, message::OpaqueMessage,
     };
-    use rustls::HandshakeType;
+    use rustls_intercept::HandshakeType;
 
     for kt in ALL_KEY_TYPES.iter() {
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, _) = make_pair_for_configs(client_config, make_server_config(*kt));
 
@@ -3755,9 +3755,9 @@ fn test_client_does_not_offer_sha1() {
 #[test]
 fn test_client_config_keyshare() {
     let client_config =
-        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::SECP384R1]);
+        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::SECP384R1]);
     let server_config =
-        make_server_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::SECP384R1]);
+        make_server_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::SECP384R1]);
     let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
     do_handshake_until_error(&mut client, &mut server).unwrap();
 }
@@ -3765,9 +3765,9 @@ fn test_client_config_keyshare() {
 #[test]
 fn test_client_config_keyshare_mismatch() {
     let client_config =
-        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::SECP384R1]);
+        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::SECP384R1]);
     let server_config =
-        make_server_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::X25519]);
+        make_server_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::X25519]);
     let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
     assert!(do_handshake_until_error(&mut client, &mut server).is_err());
 }
@@ -3778,7 +3778,7 @@ fn test_client_sends_helloretryrequest() {
     // client sends a secp384r1 key share
     let mut client_config = make_client_config_with_kx_groups(
         KeyType::Rsa,
-        &[&rustls::kx_group::SECP384R1, &rustls::kx_group::X25519],
+        &[&rustls_intercept::kx_group::SECP384R1, &rustls_intercept::kx_group::X25519],
     );
 
     let storage = Arc::new(ClientStorage::new());
@@ -3786,7 +3786,7 @@ fn test_client_sends_helloretryrequest() {
 
     // but server only accepts x25519, so a HRR is required
     let server_config =
-        make_server_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::X25519]);
+        make_server_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::X25519]);
 
     let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
 
@@ -3845,7 +3845,7 @@ fn test_client_sends_helloretryrequest() {
     ));
     assert!(matches!(
         storage.ops()[3],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::X25519)
+        ClientStorageOp::SetKxHint(_, rustls_intercept::NamedGroup::X25519)
     ));
     assert!(matches!(
         storage.ops()[4],
@@ -3879,13 +3879,13 @@ fn test_client_attempts_to_use_unsupported_kx_group() {
     // first, client sends a x25519 and server agrees. x25519 is inserted
     //   into kx group cache.
     let mut client_config_1 =
-        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::X25519]);
+        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::X25519]);
     client_config_1.resumption = Resumption::store(shared_storage.clone());
 
     // second, client only supports secp-384 and so kx group cache
     //   contains an unusable value.
     let mut client_config_2 =
-        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls::kx_group::SECP384R1]);
+        make_client_config_with_kx_groups(KeyType::Rsa, &[&rustls_intercept::kx_group::SECP384R1]);
     client_config_2.resumption = Resumption::store(shared_storage.clone());
 
     let server_config = make_server_config(KeyType::Rsa);
@@ -3899,7 +3899,7 @@ fn test_client_attempts_to_use_unsupported_kx_group() {
     assert_eq!(ops.len(), 9);
     assert!(matches!(
         ops[3],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::X25519)
+        ClientStorageOp::SetKxHint(_, rustls_intercept::NamedGroup::X25519)
     ));
 
     // second handshake
@@ -3912,11 +3912,11 @@ fn test_client_attempts_to_use_unsupported_kx_group() {
     assert!(matches!(ops[9], ClientStorageOp::TakeTls13Ticket(_, true)));
     assert!(matches!(
         ops[10],
-        ClientStorageOp::GetKxHint(_, Some(rustls::NamedGroup::X25519))
+        ClientStorageOp::GetKxHint(_, Some(rustls_intercept::NamedGroup::X25519))
     ));
     assert!(matches!(
         ops[11],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::secp384r1)
+        ClientStorageOp::SetKxHint(_, rustls_intercept::NamedGroup::secp384r1)
     ));
 }
 
@@ -4103,7 +4103,7 @@ fn connection_types_are_not_huge() {
     assert_lt(mem::size_of::<ClientConnection>(), 1600);
 }
 
-use rustls::internal::msgs::{
+use rustls_intercept::internal::msgs::{
     handshake::ClientExtension, handshake::HandshakePayload, message::Message,
     message::MessagePayload,
 };
@@ -4235,7 +4235,7 @@ fn test_client_tls12_no_resume_after_server_downgrade() {
         ServerConfig::builder()
             .with_safe_default_cipher_suites()
             .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS13])
+            .with_protocol_versions(&[&rustls_intercept::version::TLS13])
             .unwrap(),
     ));
 
@@ -4244,10 +4244,10 @@ fn test_client_tls12_no_resume_after_server_downgrade() {
         ServerConfig::builder()
             .with_safe_default_cipher_suites()
             .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS12])
+            .with_protocol_versions(&[&rustls_intercept::version::TLS12])
             .unwrap(),
     );
-    server_config_2.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+    server_config_2.session_storage = Arc::new(rustls_intercept::server::NoServerSessionStorage {});
 
     dbg!("handshake 1");
     let mut client_1 =
@@ -4287,13 +4287,13 @@ fn test_client_tls12_no_resume_after_server_downgrade() {
     // but ends up with TLS1.2
     assert_eq!(
         client_2.protocol_version(),
-        Some(rustls::ProtocolVersion::TLSv1_2)
+        Some(rustls_intercept::ProtocolVersion::TLSv1_2)
     );
 }
 
 #[test]
 fn test_acceptor() {
-    use rustls::server::Acceptor;
+    use rustls_intercept::server::Acceptor;
 
     let client_config = Arc::new(make_client_config(KeyType::Ed25519));
     let mut client = ClientConnection::new(client_config, dns_name("localhost")).unwrap();
@@ -4426,7 +4426,7 @@ fn test_no_warning_logging_during_successful_sessions() {
     CountingLogger::reset();
 
     for kt in ALL_KEY_TYPES.iter() {
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config, make_server_config(*kt));
@@ -4469,12 +4469,12 @@ fn test_secret_extraction_enabled() {
     // Chacha20Poly1305), so that's 2*3 = 6 combinations to test.
     let kt = KeyType::Rsa;
     for suite in [
-        rustls::cipher_suite::TLS13_AES_128_GCM_SHA256,
-        rustls::cipher_suite::TLS13_AES_256_GCM_SHA384,
-        rustls::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
-        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        rustls::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        rustls_intercept::cipher_suite::TLS13_AES_128_GCM_SHA256,
+        rustls_intercept::cipher_suite::TLS13_AES_256_GCM_SHA384,
+        rustls_intercept::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+        rustls_intercept::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        rustls_intercept::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        rustls_intercept::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     ] {
         let version = suite.version();
         println!("Testing suite {:?}", suite.suite().as_str());
@@ -4534,7 +4534,7 @@ fn test_secret_extraction_enabled() {
 #[cfg(feature = "secret_extraction")]
 #[test]
 fn test_secret_extraction_disabled_or_too_early() {
-    let suite = rustls::cipher_suite::TLS13_AES_128_GCM_SHA256;
+    let suite = rustls_intercept::cipher_suite::TLS13_AES_128_GCM_SHA256;
     let kt = KeyType::Rsa;
 
     for (server_enable, client_enable) in [(true, false), (false, true)] {
@@ -4576,7 +4576,7 @@ fn test_secret_extraction_disabled_or_too_early() {
 
 #[test]
 fn test_received_plaintext_backpressure() {
-    let suite = rustls::cipher_suite::TLS13_AES_128_GCM_SHA256;
+    let suite = rustls_intercept::cipher_suite::TLS13_AES_128_GCM_SHA256;
     let kt = KeyType::Rsa;
 
     let server_config = Arc::new(
@@ -4651,7 +4651,7 @@ fn test_debug_server_name_from_ip() {
     assert_eq!(
         format!(
             "{:?}",
-            rustls::ServerName::IpAddress("127.0.0.1".parse().unwrap())
+            rustls_intercept::ServerName::IpAddress("127.0.0.1".parse().unwrap())
         ),
         "IpAddress(127.0.0.1)"
     )
@@ -4660,7 +4660,7 @@ fn test_debug_server_name_from_ip() {
 #[test]
 fn test_debug_server_name_from_string() {
     assert_eq!(
-        format!("{:?}", rustls::ServerName::try_from("a.com").unwrap()),
+        format!("{:?}", rustls_intercept::ServerName::try_from("a.com").unwrap()),
         "DnsName(\"a.com\")"
     )
 }

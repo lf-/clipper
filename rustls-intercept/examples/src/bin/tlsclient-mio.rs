@@ -14,7 +14,7 @@ extern crate serde_derive;
 
 use docopt::Docopt;
 
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use rustls_intercept::{OwnedTrustAnchor, RootCertStore};
 
 const CLIENT: mio::Token = mio::Token(0);
 
@@ -24,20 +24,20 @@ struct TlsClient {
     socket: TcpStream,
     closing: bool,
     clean_closure: bool,
-    tls_conn: rustls::ClientConnection,
+    tls_conn: rustls_intercept::ClientConnection,
 }
 
 impl TlsClient {
     fn new(
         sock: TcpStream,
-        server_name: rustls::ServerName,
-        cfg: Arc<rustls::ClientConfig>,
+        server_name: rustls_intercept::ServerName,
+        cfg: Arc<rustls_intercept::ClientConfig>,
     ) -> Self {
         Self {
             socket: sock,
             closing: false,
             clean_closure: false,
-            tls_conn: rustls::ClientConnection::new(cfg, server_name).unwrap(),
+            tls_conn: rustls_intercept::ClientConnection::new(cfg, server_name).unwrap(),
         }
     }
 
@@ -258,8 +258,8 @@ fn lookup_ipv4(host: &str, port: u16) -> SocketAddr {
 }
 
 /// Find a ciphersuite with the given name
-fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
-    for suite in rustls::ALL_CIPHER_SUITES {
+fn find_suite(name: &str) -> Option<rustls_intercept::SupportedCipherSuite> {
+    for suite in rustls_intercept::ALL_CIPHER_SUITES {
         let sname = format!("{:?}", suite.suite()).to_lowercase();
 
         if sname == name.to_string().to_lowercase() {
@@ -271,7 +271,7 @@ fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
 }
 
 /// Make a vector of ciphersuites named in `suites`
-fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
+fn lookup_suites(suites: &[String]) -> Vec<rustls_intercept::SupportedCipherSuite> {
     let mut out = Vec::new();
 
     for csname in suites {
@@ -286,13 +286,13 @@ fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
 }
 
 /// Make a vector of protocol versions named in `versions`
-fn lookup_versions(versions: &[String]) -> Vec<&'static rustls::SupportedProtocolVersion> {
+fn lookup_versions(versions: &[String]) -> Vec<&'static rustls_intercept::SupportedProtocolVersion> {
     let mut out = Vec::new();
 
     for vname in versions {
         let version = match vname.as_ref() {
-            "1.2" => &rustls::version::TLS12,
-            "1.3" => &rustls::version::TLS13,
+            "1.2" => &rustls_intercept::version::TLS12,
+            "1.3" => &rustls_intercept::version::TLS13,
             _ => panic!(
                 "cannot look up version '{}', valid are '1.2' and '1.3'",
                 vname
@@ -304,25 +304,25 @@ fn lookup_versions(versions: &[String]) -> Vec<&'static rustls::SupportedProtoco
     out
 }
 
-fn load_certs(filename: &str) -> Vec<rustls::Certificate> {
+fn load_certs(filename: &str) -> Vec<rustls_intercept::Certificate> {
     let certfile = fs::File::open(filename).expect("cannot open certificate file");
     let mut reader = BufReader::new(certfile);
     rustls_pemfile::certs(&mut reader)
         .unwrap()
         .iter()
-        .map(|v| rustls::Certificate(v.clone()))
+        .map(|v| rustls_intercept::Certificate(v.clone()))
         .collect()
 }
 
-fn load_private_key(filename: &str) -> rustls::PrivateKey {
+fn load_private_key(filename: &str) -> rustls_intercept::PrivateKey {
     let keyfile = fs::File::open(filename).expect("cannot open private key file");
     let mut reader = BufReader::new(keyfile);
 
     loop {
         match rustls_pemfile::read_one(&mut reader).expect("cannot parse private key .pem file") {
-            Some(rustls_pemfile::Item::RSAKey(key)) => return rustls::PrivateKey(key),
-            Some(rustls_pemfile::Item::PKCS8Key(key)) => return rustls::PrivateKey(key),
-            Some(rustls_pemfile::Item::ECKey(key)) => return rustls::PrivateKey(key),
+            Some(rustls_pemfile::Item::RSAKey(key)) => return rustls_intercept::PrivateKey(key),
+            Some(rustls_pemfile::Item::PKCS8Key(key)) => return rustls_intercept::PrivateKey(key),
+            Some(rustls_pemfile::Item::ECKey(key)) => return rustls_intercept::PrivateKey(key),
             None => break,
             _ => {}
         }
@@ -338,23 +338,23 @@ fn load_private_key(filename: &str) -> rustls::PrivateKey {
 mod danger {
     pub struct NoCertificateVerification {}
 
-    impl rustls::client::ServerCertVerifier for NoCertificateVerification {
+    impl rustls_intercept::client::ServerCertVerifier for NoCertificateVerification {
         fn verify_server_cert(
             &self,
-            _end_entity: &rustls::Certificate,
-            _intermediates: &[rustls::Certificate],
-            _server_name: &rustls::ServerName,
+            _end_entity: &rustls_intercept::Certificate,
+            _intermediates: &[rustls_intercept::Certificate],
+            _server_name: &rustls_intercept::ServerName,
             _scts: &mut dyn Iterator<Item = &[u8]>,
             _ocsp: &[u8],
             _now: std::time::SystemTime,
-        ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-            Ok(rustls::client::ServerCertVerified::assertion())
+        ) -> Result<rustls_intercept::client::ServerCertVerified, rustls_intercept::Error> {
+            Ok(rustls_intercept::client::ServerCertVerified::assertion())
         }
     }
 }
 
 #[cfg(feature = "dangerous_configuration")]
-fn apply_dangerous_options(args: &Args, cfg: &mut rustls::ClientConfig) {
+fn apply_dangerous_options(args: &Args, cfg: &mut rustls_intercept::ClientConfig) {
     if args.flag_insecure {
         cfg.dangerous()
             .set_certificate_verifier(Arc::new(danger::NoCertificateVerification {}));
@@ -362,14 +362,14 @@ fn apply_dangerous_options(args: &Args, cfg: &mut rustls::ClientConfig) {
 }
 
 #[cfg(not(feature = "dangerous_configuration"))]
-fn apply_dangerous_options(args: &Args, _: &mut rustls::ClientConfig) {
+fn apply_dangerous_options(args: &Args, _: &mut rustls_intercept::ClientConfig) {
     if args.flag_insecure {
         panic!("This build does not support --insecure.");
     }
 }
 
 /// Build a `ClientConfig` from our arguments
-fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
+fn make_config(args: &Args) -> Arc<rustls_intercept::ClientConfig> {
     let mut root_store = RootCertStore::empty();
 
     if args.flag_cafile.is_some() {
@@ -396,16 +396,16 @@ fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
     let suites = if !args.flag_suite.is_empty() {
         lookup_suites(&args.flag_suite)
     } else {
-        rustls::DEFAULT_CIPHER_SUITES.to_vec()
+        rustls_intercept::DEFAULT_CIPHER_SUITES.to_vec()
     };
 
     let versions = if !args.flag_protover.is_empty() {
         lookup_versions(&args.flag_protover)
     } else {
-        rustls::DEFAULT_VERSIONS.to_vec()
+        rustls_intercept::DEFAULT_VERSIONS.to_vec()
     };
 
-    let config = rustls::ClientConfig::builder()
+    let config = rustls_intercept::ClientConfig::builder()
         .with_cipher_suites(&suites)
         .with_safe_default_kx_groups()
         .with_protocol_versions(&versions)
@@ -426,12 +426,12 @@ fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
         }
     };
 
-    config.key_log = Arc::new(rustls::KeyLogFile::new());
+    config.key_log = Arc::new(rustls_intercept::KeyLogFile::new());
 
     if args.flag_no_tickets {
         config.resumption = config
             .resumption
-            .tls12_resumption(rustls::client::Tls12Resumption::SessionIdOnly);
+            .tls12_resumption(rustls_intercept::client::Tls12Resumption::SessionIdOnly);
     }
 
     if args.flag_no_sni {

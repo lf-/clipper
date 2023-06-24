@@ -19,9 +19,9 @@ use std::marker::PhantomData;
 /// Example, to make a [`ServerConfig`]:
 ///
 /// ```no_run
-/// # use rustls::ServerConfig;
+/// # use rustls_intercept::ServerConfig;
 /// # let certs = vec![];
-/// # let private_key = rustls::PrivateKey(vec![]);
+/// # let private_key = rustls_intercept::PrivateKey(vec![]);
 /// ServerConfig::builder()
 ///     .with_safe_default_cipher_suites()
 ///     .with_safe_default_kx_groups()
@@ -35,9 +35,9 @@ use std::marker::PhantomData;
 /// This may be shortened to:
 ///
 /// ```no_run
-/// # use rustls::ServerConfig;
+/// # use rustls_intercept::ServerConfig;
 /// # let certs = vec![];
-/// # let private_key = rustls::PrivateKey(vec![]);
+/// # let private_key = rustls_intercept::PrivateKey(vec![]);
 /// ServerConfig::builder()
 ///     .with_safe_defaults()
 ///     .with_no_client_auth()
@@ -48,10 +48,10 @@ use std::marker::PhantomData;
 /// To make a [`ClientConfig`]:
 ///
 /// ```no_run
-/// # use rustls::ClientConfig;
-/// # let root_certs = rustls::RootCertStore::empty();
+/// # use rustls_intercept::ClientConfig;
+/// # let root_certs = rustls_intercept::RootCertStore::empty();
 /// # let certs = vec![];
-/// # let private_key = rustls::PrivateKey(vec![]);
+/// # let private_key = rustls_intercept::PrivateKey(vec![]);
 /// ClientConfig::builder()
 ///     .with_safe_default_cipher_suites()
 ///     .with_safe_default_kx_groups()
@@ -65,8 +65,8 @@ use std::marker::PhantomData;
 /// This may be shortened to:
 ///
 /// ```
-/// # use rustls::ClientConfig;
-/// # let root_certs = rustls::RootCertStore::empty();
+/// # use rustls_intercept::ClientConfig;
+/// # let root_certs = rustls_intercept::RootCertStore::empty();
 /// ClientConfig::builder()
 ///     .with_safe_defaults()
 ///     .with_root_certificates(root_certs)

@@ -1,4 +1,4 @@
-//! Tests of [`rustls::KeyLogFile`] that require us to set environment variables.
+//! Tests of [`rustls_intercept::KeyLogFile`] that require us to set environment variables.
 //!
 //!                                 vvvv
 //! Every test you add to this file MUST execute through `serialized()`.
@@ -63,9 +63,9 @@ fn exercise_key_log_file_for_client() {
         let server_config = Arc::new(make_server_config(KeyType::Rsa));
         env::set_var("SSLKEYLOGFILE", "./sslkeylogfile.txt");
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(KeyType::Rsa, &[version]);
-            client_config.key_log = Arc::new(rustls::KeyLogFile::new());
+            client_config.key_log = Arc::new(rustls_intercept::KeyLogFile::new());
 
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -85,11 +85,11 @@ fn exercise_key_log_file_for_server() {
         let mut server_config = make_server_config(KeyType::Rsa);
 
         env::set_var("SSLKEYLOGFILE", "./sslkeylogfile.txt");
-        server_config.key_log = Arc::new(rustls::KeyLogFile::new());
+        server_config.key_log = Arc::new(rustls_intercept::KeyLogFile::new());
 
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(KeyType::Rsa, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);

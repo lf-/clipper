@@ -3,9 +3,9 @@
 extern crate libfuzzer_sys;
 extern crate rustls;
 
-use rustls::internal::msgs::deframer;
-use rustls::internal::msgs::message::Message;
-use rustls::internal::record_layer::RecordLayer;
+use rustls_intercept::internal::msgs::deframer;
+use rustls_intercept::internal::msgs::message::Message;
+use rustls_intercept::internal::record_layer::RecordLayer;
 use std::io;
 
 fuzz_target!(|data: &[u8]| {

@@ -7,11 +7,11 @@ use crate::common::{
     do_handshake, do_handshake_until_both_error, make_client_config_with_versions,
     make_pair_for_arc_configs, make_server_config, ErrorFromPeer, ALL_KEY_TYPES,
 };
-use rustls::client::{
+use rustls_intercept::client::{
     HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier, WebPkiVerifier,
 };
-use rustls::DigitallySignedStruct;
-use rustls::{AlertDescription, Certificate, Error, InvalidMessage, SignatureScheme};
+use rustls_intercept::DigitallySignedStruct;
+use rustls_intercept::{AlertDescription, Certificate, Error, InvalidMessage, SignatureScheme};
 use std::sync::Arc;
 
 #[test]
@@ -21,7 +21,7 @@ fn client_can_override_certificate_verification() {
 
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config
                 .dangerous()
@@ -43,7 +43,7 @@ fn client_can_override_certificate_verification_and_reject_certificate() {
 
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config
                 .dangerous()
@@ -69,7 +69,7 @@ fn client_can_override_certificate_verification_and_reject_certificate() {
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
-        let mut client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS12]);
+        let mut client_config = make_client_config_with_versions(*kt, &[&rustls_intercept::version::TLS12]);
         let verifier = Arc::new(MockServerVerifier::rejects_tls12_signatures(
             Error::InvalidMessage(InvalidMessage::HandshakePayloadTooLarge),
         ));
@@ -98,7 +98,7 @@ fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls13_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
-        let mut client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS13]);
+        let mut client_config = make_client_config_with_versions(*kt, &[&rustls_intercept::version::TLS13]);
         let verifier = Arc::new(MockServerVerifier::rejects_tls13_signatures(
             Error::InvalidMessage(InvalidMessage::HandshakePayloadTooLarge),
         ));
@@ -131,7 +131,7 @@ fn client_can_override_certificate_verification_and_offer_no_signature_schemes()
 
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config
                 .dangerous()
@@ -144,7 +144,7 @@ fn client_can_override_certificate_verification_and_offer_no_signature_schemes()
                 errs,
                 Err(vec![
                     ErrorFromPeer::Server(Error::PeerIncompatible(
-                        rustls::PeerIncompatible::NoSignatureSchemesInCommon
+                        rustls_intercept::PeerIncompatible::NoSignatureSchemesInCommon
                     )),
                     ErrorFromPeer::Client(Error::AlertReceived(AlertDescription::HandshakeFailure)),
                 ])
@@ -164,9 +164,9 @@ pub struct MockServerVerifier {
 impl ServerCertVerifier for MockServerVerifier {
     fn verify_server_cert(
         &self,
-        end_entity: &rustls::Certificate,
-        intermediates: &[rustls::Certificate],
-        server_name: &rustls::ServerName,
+        end_entity: &rustls_intercept::Certificate,
+        intermediates: &[rustls_intercept::Certificate],
+        server_name: &rustls_intercept::ServerName,
         scts: &mut dyn Iterator<Item = &[u8]>,
         oscp_response: &[u8],
         now: std::time::SystemTime,

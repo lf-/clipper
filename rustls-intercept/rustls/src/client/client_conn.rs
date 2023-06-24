@@ -325,7 +325,7 @@ impl Default for Resumption {
 /// so you can do:
 ///
 /// ```
-/// # use rustls::ServerName;
+/// # use rustls_intercept::ServerName;
 /// ServerName::try_from("example.com").expect("invalid DNS name");
 ///
 /// // or, alternatively...

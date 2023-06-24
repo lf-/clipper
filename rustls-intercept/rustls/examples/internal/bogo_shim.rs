@@ -4,11 +4,11 @@
 // https://boringssl.googlesource.com/boringssl/+/master/ssl/test
 //
 
-use rustls::client::{ClientConfig, ClientConnection, Resumption};
-use rustls::internal::msgs::codec::Codec;
-use rustls::internal::msgs::persist;
-use rustls::server::{ClientHello, ServerConfig, ServerConnection};
-use rustls::{
+use rustls_intercept::client::{ClientConfig, ClientConnection, Resumption};
+use rustls_intercept::internal::msgs::codec::Codec;
+use rustls_intercept::internal::msgs::persist;
+use rustls_intercept::server::{ClientHello, ServerConfig, ServerConnection};
+use rustls_intercept::{
     self, client, kx_group, server, sign, version, AlertDescription, Certificate, CertificateError,
     Connection, DistinguishedName, Error, InvalidMessage, NamedGroup, PeerMisbehaved, PrivateKey,
     ProtocolVersion, ServerName, Side, SignatureAlgorithm, SignatureScheme, SupportedKxGroup,

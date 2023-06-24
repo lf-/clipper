@@ -4,15 +4,15 @@ use std::io;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use rustls::internal::msgs::codec::Reader;
-use rustls::internal::msgs::message::{Message, OpaqueMessage, PlainMessage};
-use rustls::server::AllowAnyAuthenticatedClient;
-use rustls::Connection;
-use rustls::Error;
-use rustls::RootCertStore;
-use rustls::{Certificate, PrivateKey};
-use rustls::{ClientConfig, ClientConnection};
-use rustls::{ConnectionCommon, ServerConfig, ServerConnection, SideData};
+use rustls_intercept::internal::msgs::codec::Reader;
+use rustls_intercept::internal::msgs::message::{Message, OpaqueMessage, PlainMessage};
+use rustls_intercept::server::AllowAnyAuthenticatedClient;
+use rustls_intercept::Connection;
+use rustls_intercept::Error;
+use rustls_intercept::RootCertStore;
+use rustls_intercept::{Certificate, PrivateKey};
+use rustls_intercept::{ClientConfig, ClientConnection};
+use rustls_intercept::{ConnectionCommon, ServerConfig, ServerConnection, SideData};
 
 macro_rules! embed_files {
     (
@@ -231,7 +231,7 @@ impl KeyType {
 
 pub fn finish_server_config(
     kt: KeyType,
-    conf: rustls::ConfigBuilder<ServerConfig, rustls::WantsVerifier>,
+    conf: rustls_intercept::ConfigBuilder<ServerConfig, rustls_intercept::WantsVerifier>,
 ) -> ServerConfig {
     conf.with_no_client_auth()
         .with_single_cert(kt.get_chain(), kt.get_key())
@@ -244,7 +244,7 @@ pub fn make_server_config(kt: KeyType) -> ServerConfig {
 
 pub fn make_server_config_with_versions(
     kt: KeyType,
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static rustls_intercept::SupportedProtocolVersion],
 ) -> ServerConfig {
     finish_server_config(
         kt,
@@ -258,7 +258,7 @@ pub fn make_server_config_with_versions(
 
 pub fn make_server_config_with_kx_groups(
     kt: KeyType,
-    kx_groups: &[&'static rustls::SupportedKxGroup],
+    kx_groups: &[&'static rustls_intercept::SupportedKxGroup],
 ) -> ServerConfig {
     finish_server_config(
         kt,
@@ -295,7 +295,7 @@ pub fn make_server_config_with_mandatory_client_auth(kt: KeyType) -> ServerConfi
 
 pub fn finish_client_config(
     kt: KeyType,
-    config: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
+    config: rustls_intercept::ConfigBuilder<ClientConfig, rustls_intercept::WantsVerifier>,
 ) -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     let mut rootbuf = io::BufReader::new(kt.bytes_for("ca.cert"));
@@ -308,7 +308,7 @@ pub fn finish_client_config(
 
 pub fn finish_client_config_with_creds(
     kt: KeyType,
-    config: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
+    config: rustls_intercept::ConfigBuilder<ClientConfig, rustls_intercept::WantsVerifier>,
 ) -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     let mut rootbuf = io::BufReader::new(kt.bytes_for("ca.cert"));
@@ -326,7 +326,7 @@ pub fn make_client_config(kt: KeyType) -> ClientConfig {
 
 pub fn make_client_config_with_kx_groups(
     kt: KeyType,
-    kx_groups: &[&'static rustls::SupportedKxGroup],
+    kx_groups: &[&'static rustls_intercept::SupportedKxGroup],
 ) -> ClientConfig {
     let builder = ClientConfig::builder()
         .with_safe_default_cipher_suites()
@@ -338,7 +338,7 @@ pub fn make_client_config_with_kx_groups(
 
 pub fn make_client_config_with_versions(
     kt: KeyType,
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static rustls_intercept::SupportedProtocolVersion],
 ) -> ClientConfig {
     let builder = ClientConfig::builder()
         .with_safe_default_cipher_suites()
@@ -354,7 +354,7 @@ pub fn make_client_config_with_auth(kt: KeyType) -> ClientConfig {
 
 pub fn make_client_config_with_versions_with_auth(
     kt: KeyType,
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static rustls_intercept::SupportedProtocolVersion],
 ) -> ClientConfig {
     let builder = ClientConfig::builder()
         .with_safe_default_cipher_suites()
@@ -454,7 +454,7 @@ pub fn do_handshake_until_both_error(
     }
 }
 
-pub fn dns_name(name: &'static str) -> rustls::ServerName {
+pub fn dns_name(name: &'static str) -> rustls_intercept::ServerName {
     name.try_into().unwrap()
 }
 

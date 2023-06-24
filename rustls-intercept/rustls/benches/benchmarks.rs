@@ -4,7 +4,7 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 mod test_utils;
 use test_utils::*;
 
-use rustls::ServerConnection;
+use rustls_intercept::ServerConnection;
 
 use std::io;
 use std::sync::Arc;

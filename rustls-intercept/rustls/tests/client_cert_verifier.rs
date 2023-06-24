@@ -9,10 +9,10 @@ use crate::common::{
     make_client_config_with_versions, make_client_config_with_versions_with_auth,
     make_pair_for_arc_configs, ErrorFromPeer, KeyType, ALL_KEY_TYPES,
 };
-use rustls::client::WebPkiVerifier;
-use rustls::internal::msgs::handshake::DistinguishedName;
-use rustls::server::{ClientCertVerified, ClientCertVerifier};
-use rustls::{
+use rustls_intercept::client::WebPkiVerifier;
+use rustls_intercept::internal::msgs::handshake::DistinguishedName;
+use rustls_intercept::server::{ClientCertVerified, ClientCertVerifier};
+use rustls_intercept::{
     AlertDescription, Certificate, ClientConnection, Error, InvalidMessage, ServerConfig,
     ServerConnection, SignatureScheme,
 };
@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 // Client is authorized!
 fn ver_ok() -> Result<ClientCertVerified, Error> {
-    Ok(rustls::server::ClientCertVerified::assertion())
+    Ok(rustls_intercept::server::ClientCertVerified::assertion())
 }
 
 // Use when we shouldn't even attempt verification
@@ -62,7 +62,7 @@ fn client_verifier_works() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config.clone()), &server_config);
@@ -90,7 +90,7 @@ fn client_verifier_no_schemes() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config.clone()), &server_config);
@@ -123,7 +123,7 @@ fn client_verifier_no_auth_yes_root() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let mut server = ServerConnection::new(Arc::clone(&server_config)).unwrap();
             let mut client =
@@ -143,7 +143,7 @@ fn client_verifier_no_auth_yes_root() {
 }
 
 #[test]
-// Triple checks we propagate the rustls::Error through
+// Triple checks we propagate the rustls_intercept::Error through
 fn client_verifier_fails_properly() {
     for kt in ALL_KEY_TYPES.iter() {
         let client_verifier = MockClientVerifier {
@@ -160,7 +160,7 @@ fn client_verifier_fails_properly() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in rustls_intercept::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let mut server = ServerConnection::new(Arc::clone(&server_config)).unwrap();
             let mut client =

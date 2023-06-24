@@ -501,13 +501,13 @@ impl From<ServerConnection> for crate::Connection {
 ///
 /// ```no_run
 /// # fn choose_server_config(
-/// #     _: rustls::server::ClientHello,
-/// # ) -> std::sync::Arc<rustls::ServerConfig> {
+/// #     _: rustls_intercept::server::ClientHello,
+/// # ) -> std::sync::Arc<rustls_intercept::ServerConfig> {
 /// #     unimplemented!();
 /// # }
 /// # #[allow(unused_variables)]
 /// # fn main() {
-/// use rustls::server::{Acceptor, ServerConfig};
+/// use rustls_intercept::server::{Acceptor, ServerConfig};
 /// let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
 /// for stream in listener.incoming() {
 ///     let mut stream = stream.unwrap();

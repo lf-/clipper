@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::io::{stdout, Read, Write};
 use std::net::TcpStream;
 
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use rustls_intercept::{OwnedTrustAnchor, RootCertStore};
 
-fn start_connection(config: &Arc<rustls::ClientConfig>, domain_name: &str) {
+fn start_connection(config: &Arc<rustls_intercept::ClientConfig>, domain_name: &str) {
     let server_name = domain_name
         .try_into()
         .expect("invalid DNS name");
-    let mut conn = rustls::ClientConnection::new(Arc::clone(config), server_name).unwrap();
+    let mut conn = rustls_intercept::ClientConnection::new(Arc::clone(config), server_name).unwrap();
     let mut sock = TcpStream::connect(format!("{}:443", domain_name)).unwrap();
     sock.set_nodelay(true).unwrap();
     let request = format!(
@@ -30,7 +30,7 @@ fn start_connection(config: &Arc<rustls::ClientConfig>, domain_name: &str) {
             .unwrap();
     }
 
-    let mut stream = rustls::Stream::new(&mut conn, &mut sock);
+    let mut stream = rustls_intercept::Stream::new(&mut conn, &mut sock);
 
     // Complete handshake.
     stream.flush().unwrap();
@@ -67,7 +67,7 @@ fn main() {
             }),
     );
 
-    let mut config = rustls::ClientConfig::builder()
+    let mut config = rustls_intercept::ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth();

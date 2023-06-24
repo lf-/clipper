@@ -100,13 +100,13 @@
 //! the Mozilla set of root certificates.
 //!
 //! ```rust,no_run
-//! let mut root_store = rustls::RootCertStore::empty();
+//! let mut root_store = rustls_intercept::RootCertStore::empty();
 //! root_store.add_server_trust_anchors(
 //!     webpki_roots::TLS_SERVER_ROOTS
 //!         .0
 //!         .iter()
 //!         .map(|ta| {
-//!             rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+//!             rustls_intercept::OwnedTrustAnchor::from_subject_spki_name_constraints(
 //!                 ta.subject,
 //!                 ta.spki,
 //!                 ta.name_constraints,
@@ -119,8 +119,8 @@
 //! and use it for all connections made by that process.
 //!
 //! ```rust,no_run
-//! # let root_store: rustls::RootCertStore = panic!();
-//! let config = rustls::ClientConfig::builder()
+//! # let root_store: rustls_intercept::RootCertStore = panic!();
+//! let config = rustls_intercept::ClientConfig::builder()
 //!     .with_safe_defaults()
 //!     .with_root_certificates(root_store)
 //!     .with_no_client_auth();
@@ -133,26 +133,26 @@
 //! # use rustls;
 //! # use webpki;
 //! # use std::sync::Arc;
-//! # let mut root_store = rustls::RootCertStore::empty();
+//! # let mut root_store = rustls_intercept::RootCertStore::empty();
 //! # root_store.add_server_trust_anchors(
 //! #  webpki_roots::TLS_SERVER_ROOTS
 //! #      .0
 //! #      .iter()
 //! #      .map(|ta| {
-//! #          rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+//! #          rustls_intercept::OwnedTrustAnchor::from_subject_spki_name_constraints(
 //! #              ta.subject,
 //! #              ta.spki,
 //! #              ta.name_constraints,
 //! #          )
 //! #      })
 //! # );
-//! # let config = rustls::ClientConfig::builder()
+//! # let config = rustls_intercept::ClientConfig::builder()
 //! #     .with_safe_defaults()
 //! #     .with_root_certificates(root_store)
 //! #     .with_no_client_auth();
 //! let rc_config = Arc::new(config);
 //! let example_com = "example.com".try_into().unwrap();
-//! let mut client = rustls::ClientConnection::new(rc_config, example_com);
+//! let mut client = rustls_intercept::ClientConnection::new(rc_config, example_com);
 //! ```
 //!
 //! Now you should do appropriate IO for the `client` object.  If `client.wants_read()` yields
@@ -179,7 +179,7 @@
 //! errors.
 //!
 //! ```rust,no_run
-//! # let mut client = rustls::ClientConnection::new(panic!(), panic!()).unwrap();
+//! # let mut client = rustls_intercept::ClientConnection::new(panic!(), panic!()).unwrap();
 //! # struct Socket { }
 //! # impl Socket {
 //! #   fn ready_for_write(&self) -> bool { false }
@@ -200,7 +200,7 @@
 //! #   panic!();
 //! # }
 //! use std::io;
-//! use rustls::Connection;
+//! use rustls_intercept::Connection;
 //!
 //! client.writer().write(b"GET / HTTP/1.0\r\n\r\n").unwrap();
 //! let mut socket = connect("example.com", 443);

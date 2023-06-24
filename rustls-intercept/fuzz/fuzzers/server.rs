@@ -3,8 +3,8 @@
 extern crate libfuzzer_sys;
 extern crate rustls;
 
-use rustls::server::ResolvesServerCert;
-use rustls::{ServerConfig, ServerConnection};
+use rustls_intercept::server::ResolvesServerCert;
+use rustls_intercept::{ServerConfig, ServerConnection};
 
 use std::io;
 use std::sync::Arc;
@@ -14,8 +14,8 @@ struct Fail;
 impl ResolvesServerCert for Fail {
     fn resolve(
         &self,
-        _client_hello: rustls::server::ClientHello,
-    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        _client_hello: rustls_intercept::server::ClientHello,
+    ) -> Option<Arc<rustls_intercept::sign::CertifiedKey>> {
         None
     }
 }
