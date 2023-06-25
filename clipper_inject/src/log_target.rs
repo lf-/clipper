@@ -6,8 +6,11 @@
 
 use std::{
     fmt,
+    path::PathBuf,
     sync::{Mutex, OnceLock},
 };
+
+use crate::rpc;
 pub static LOG_TARGET: OnceLock<Box<dyn LogTarget>> = OnceLock::new();
 
 pub trait LogTarget: Send + Sync {
@@ -47,20 +50,29 @@ pub struct TLSKeyLogLine {
     pub secret: Vec<u8>,
 }
 
-pub struct LogTargetMpsc(tokio::sync::mpsc::UnboundedSender<TLSKeyLogLine>);
+pub struct LogTargetRpc {
+    addr: PathBuf,
+    sender: OnceLock<tokio::sync::mpsc::UnboundedSender<TLSKeyLogLine>>,
+}
 
-impl LogTargetMpsc {
-    pub fn new(sender: tokio::sync::mpsc::UnboundedSender<TLSKeyLogLine>) -> Self {
-        Self(sender)
+impl LogTargetRpc {
+    pub fn new(addr: PathBuf) -> Self {
+        Self {
+            addr,
+            sender: Default::default(),
+        }
     }
 }
 
-impl LogTarget for LogTargetMpsc {
+impl LogTarget for LogTargetRpc {
     fn log(&self, label: &str, client_random: &[u8], secret: &[u8]) {
-        let _ = self.0.send(TLSKeyLogLine {
-            label: label.to_string(),
-            client_random: client_random.to_vec(),
-            secret: secret.to_vec(),
-        });
+        let _ = self
+            .sender
+            .get_or_init(|| rpc::start(self.addr.clone()))
+            .send(TLSKeyLogLine {
+                label: label.to_string(),
+                client_random: client_random.to_vec(),
+                secret: secret.to_vec(),
+            });
     }
 }

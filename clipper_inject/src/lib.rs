@@ -13,7 +13,7 @@ use log_target::LogTarget;
 
 use crate::{
     hooks::{init_hooks, HookService, GUM},
-    log_target::{LogTargetMpsc, LogTargetStream, LOG_TARGET},
+    log_target::{LogTargetRpc, LogTargetStream, LOG_TARGET},
 };
 use tracing_subscriber::{fmt, prelude::*};
 
@@ -24,10 +24,7 @@ mod rpc;
 
 fn pick_target() -> Box<dyn LogTarget> {
     match std::env::var(clipper_protocol::SOCKET_ENV_VAR) {
-        Ok(v) => {
-            let sender = rpc::start(v.into());
-            Box::new(LogTargetMpsc::new(sender))
-        }
+        Ok(v) => Box::new(LogTargetRpc::new(v.into())),
         Err(_) => match std::env::var("SSLKEYLOGFILE") {
             Ok(v) => Box::new(LogTargetStream::new(
                 OpenOptions::new()
