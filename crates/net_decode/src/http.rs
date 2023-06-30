@@ -13,7 +13,7 @@ use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
     chomp::IPTarget,
-    listener::{Listener, TimingInfo},
+    listener::{Listener, SideData, TimingInfo},
 };
 
 pub type RequestId = u64;
@@ -415,5 +415,9 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
 
             data = data[eaten..].to_vec();
         }
+    }
+
+    fn on_side_data(&mut self, data: Box<dyn SideData>) {
+        self.next.on_side_data(data);
     }
 }

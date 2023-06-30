@@ -17,7 +17,7 @@ use devtools_server::{
         network::{self, EventRequestWillBeSent},
         security,
     },
-    cdp_types::{self, CdpJsonEventMessage, MethodCall},
+    cdp_types::{self, MethodCall},
     ConnectionStream,
 };
 use futures::{Stream, StreamExt};
@@ -421,6 +421,8 @@ impl Listener<HTTPStreamEvent> for DevtoolsListener {
         self.send
             .send(DevtoolsProtoEvent::HTTPStreamEvent(timing, data));
     }
+
+    fn on_side_data(&mut self, _data: Box<dyn net_decode::listener::SideData>) {}
 }
 
 pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_server::Error> {

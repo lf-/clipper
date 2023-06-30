@@ -27,11 +27,27 @@ use rustls_intercept::{
 use crate::{
     chomp::IPTarget,
     key_db::{ClientRandom, KeyDB, SecretType},
-    listener::{Listener, Nanos, TimingInfo},
+    listener::{Listener, Nanos, SideData, TimingInfo},
 };
 
 pub mod timings {
     pub struct TlsConnectionStart;
+}
+
+pub mod side_data {
+    use crate::{
+        key_db::{ClientRandom, Secret, SecretType},
+        listener::SideData,
+    };
+
+    #[derive(Debug)]
+    pub struct NewKeyReceived {
+        pub typ: SecretType,
+        pub client_random: ClientRandom,
+        pub secret: Secret,
+    }
+
+    impl SideData for NewKeyReceived {}
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -329,6 +345,36 @@ impl TLSFlow {
     }
 }
 
+/// Accepts TLS data and queues messages for which we do not have the keys.
+///
+/// Expects the state handling to be sufficiently idempotent that failing to
+/// get keys will not severely break it.
+struct KeyReorderBuffer {
+    queued: Vec<Message>,
+}
+
+// How do we deliver keys to the right connections? The key database knows
+// which client_random is associated with the session. So we would want a
+// second index from ClientRandom to TLSFlow, probably.
+//
+// Problem the second: what if the keys arrive before the data (not impossible
+// but rather strange)? We need to retain key messages that we cannot yet
+// associate with a connection.
+//
+// Problem the third: architecturally, how do we deliver new keys messages
+// without blowing up the listener idea? It is especially a problem because we
+// want to have pipelines where the next listener is invoked by the last, so we
+// would have to retain a separate ref. Somehow. Ugh.
+//
+// I think that architecturally we want to be an actors model, but that can
+// reveal inherent threading problems through ownership semantics. Maybe the
+// next field should be an Arc<RwLock> so we can hold a ref to it.
+//
+// Another approach is to be able to shove arbitrary side-data through the
+// listener stack. This seems conceptually fairly appealing: each listener
+// calls the next and extracts the data it cares about if any. The reason I
+// like this is that it keeps all the data flowing the same direction.
+
 pub struct TLSFlowTracker {
     flows: HashMap<IPTarget, TLSFlow>,
     // XXX: This is here because there is not an obvious way to stuff a
@@ -426,5 +472,9 @@ impl Listener<Vec<u8>> for TLSFlowTracker {
                 Err(e) => tracing::warn!("error deframing tls: {e}"),
             }
         }
+    }
+
+    fn on_side_data(&mut self, data: Box<dyn SideData>) {
+        self.next.on_side_data(data);
     }
 }
