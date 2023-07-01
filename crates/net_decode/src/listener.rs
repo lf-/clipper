@@ -37,7 +37,15 @@ pub struct TimingInfo {
 }
 
 /// Implement this trait on any side data types
-pub trait SideData: fmt::Debug + Any {}
+pub trait SideData: fmt::Debug {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: fmt::Debug + Any + Sized> SideData for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 /// Type which receives some kind of messages from a layer up the stack.
 ///

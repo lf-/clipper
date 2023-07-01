@@ -35,10 +35,7 @@ pub mod timings {
 }
 
 pub mod side_data {
-    use crate::{
-        key_db::{ClientRandom, Secret, SecretType},
-        listener::SideData,
-    };
+    use crate::key_db::{ClientRandom, Secret, SecretType};
 
     #[derive(Debug)]
     pub struct NewKeyReceived {
@@ -46,13 +43,11 @@ pub mod side_data {
         pub client_random: ClientRandom,
         pub secret: Secret,
     }
-
-    impl SideData for NewKeyReceived {}
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum TLSDecodeError {
-    NoKeysAvailable,
+    MissingKey(ClientRandom),
     UnknownCipherSuite,
     RustlsError(RustlsError),
 }
@@ -60,7 +55,10 @@ enum TLSDecodeError {
 impl fmt::Display for TLSDecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoKeysAvailable => write!(f, "No keys available in key log"),
+            Self::MissingKey(cr) => write!(
+                f,
+                "Missing a key to decode this flow with client_random {cr}"
+            ),
             Self::UnknownCipherSuite => write!(f, "Cipher suite is not supported"),
             Self::RustlsError(e) => fmt::Display::fmt(e, f),
         }
@@ -119,7 +117,16 @@ struct CommonData<'a> {
     next: &'a mut dyn FnMut(bool, Vec<u8>),
 }
 
-type NextStateOrError = Result<Box<dyn TLSState>, TLSDecodeError>;
+macro_rules! try_giving_back {
+    ($self:expr, $ex:expr $(,)?) => {
+        match $ex {
+            Ok(v) => v,
+            Err(e) => return Err(($self, e.into())),
+        }
+    };
+}
+
+type NextStateOrError = Result<Box<dyn TLSState>, (Box<dyn TLSState>, TLSDecodeError)>;
 
 trait TLSState: std::fmt::Debug {
     // FIXME: how to signal to change state
@@ -127,7 +134,7 @@ trait TLSState: std::fmt::Debug {
         self: Box<Self>,
         flow: &mut TLSFlow,
         to_client: bool,
-        msg: Message,
+        msg: &Message,
         common_data: CommonData<'_>,
     ) -> NextStateOrError;
 }
@@ -140,7 +147,7 @@ impl TLSState for Failed {
         self: Box<Self>,
         _flow: &mut TLSFlow,
         _to_client: bool,
-        _msg: Message,
+        _msg: &Message,
         _common_data: CommonData<'_>,
     ) -> NextStateOrError {
         Ok(self)
@@ -155,7 +162,7 @@ impl TLSState for ExpectClientHello {
         self: Box<Self>,
         _flow: &mut TLSFlow,
         to_client: bool,
-        msg: Message,
+        msg: &Message,
         _common_data: CommonData<'_>,
     ) -> NextStateOrError {
         if to_client {
@@ -166,11 +173,14 @@ impl TLSState for ExpectClientHello {
             // expect ClientHello
             // FIXME: how do we stop following the connection in the case that
             // something just totally falls over?
-            let chp = require_handshake_msg!(
-                msg,
-                HandshakeType::ClientHello,
-                HandshakePayload::ClientHello
-            )?;
+            let chp = try_giving_back!(
+                self,
+                require_handshake_msg!(
+                    msg,
+                    HandshakeType::ClientHello,
+                    HandshakePayload::ClientHello
+                )
+            );
 
             let new_state = Box::new(ExpectServerHello {
                 client_random: chp.random.into(),
@@ -191,35 +201,47 @@ impl TLSState for ExpectServerHello {
         self: Box<Self>,
         flow: &mut TLSFlow,
         to_client: bool,
-        msg: Message,
+        msg: &Message,
         common_data: CommonData<'_>,
     ) -> NextStateOrError {
         if to_client {
-            let shp = require_handshake_msg!(
-                msg,
-                HandshakeType::ServerHello,
-                HandshakePayload::ServerHello
-            )?;
-
-            let client_handshake_traffic_secret = common_data
-                .key_db
-                .lookup_secret(
-                    &self.client_random,
-                    SecretType::ClientHandshakeTrafficSecret,
+            let shp = try_giving_back!(
+                self,
+                require_handshake_msg!(
+                    msg,
+                    HandshakeType::ServerHello,
+                    HandshakePayload::ServerHello
                 )
-                .ok_or(TLSDecodeError::NoKeysAvailable)?;
-            let server_handshake_traffic_secret = common_data
-                .key_db
-                .lookup_secret(
-                    &self.client_random,
-                    SecretType::ServerHandshakeTrafficSecret,
-                )
-                .ok_or(TLSDecodeError::NoKeysAvailable)?;
+            );
 
-            let suite = ALL_CIPHER_SUITES
-                .iter()
-                .find(|s| s.suite() == shp.cipher_suite)
-                .ok_or(TLSDecodeError::UnknownCipherSuite)?;
+            let client_handshake_traffic_secret = try_giving_back!(
+                self,
+                common_data
+                    .key_db
+                    .lookup_secret(
+                        &self.client_random,
+                        SecretType::ClientHandshakeTrafficSecret,
+                    )
+                    .ok_or(TLSDecodeError::MissingKey(self.client_random.clone()))
+            );
+            let server_handshake_traffic_secret = try_giving_back!(
+                self,
+                common_data
+                    .key_db
+                    .lookup_secret(
+                        &self.client_random,
+                        SecretType::ServerHandshakeTrafficSecret,
+                    )
+                    .ok_or(TLSDecodeError::MissingKey(self.client_random.clone()))
+            );
+
+            let suite = try_giving_back!(
+                self,
+                ALL_CIPHER_SUITES
+                    .iter()
+                    .find(|s| s.suite() == shp.cipher_suite)
+                    .ok_or(TLSDecodeError::UnknownCipherSuite)
+            );
 
             match suite {
                 SupportedCipherSuite::Tls13(suite) => {
@@ -272,7 +294,7 @@ impl TLSState for WaitForFinish {
         self: Box<Self>,
         flow: &mut TLSFlow,
         to_client: bool,
-        msg: Message,
+        msg: &Message,
         common_data: CommonData<'_>,
     ) -> NextStateOrError {
         match msg.payload {
@@ -288,18 +310,27 @@ impl TLSState for WaitForFinish {
                 // server's response to be unavailable
 
                 // FIXME: key switching
-                let client_traffic_secret = common_data
-                    .key_db
-                    .lookup_secret(&self.client_random, SecretType::ClientTrafficSecret0)
-                    .ok_or(TLSDecodeError::NoKeysAvailable)?;
-                let server_traffic_secret = common_data
-                    .key_db
-                    .lookup_secret(&self.client_random, SecretType::ServerTrafficSecret0)
-                    .ok_or(TLSDecodeError::NoKeysAvailable)?;
-                let exporter_secret = common_data
-                    .key_db
-                    .lookup_secret(&self.client_random, SecretType::ExporterSecret)
-                    .ok_or(TLSDecodeError::NoKeysAvailable)?;
+                let client_traffic_secret = try_giving_back!(
+                    self,
+                    common_data
+                        .key_db
+                        .lookup_secret(&self.client_random, SecretType::ClientTrafficSecret0)
+                        .ok_or(TLSDecodeError::MissingKey(self.client_random.clone()))
+                );
+                let server_traffic_secret = try_giving_back!(
+                    self,
+                    common_data
+                        .key_db
+                        .lookup_secret(&self.client_random, SecretType::ServerTrafficSecret0)
+                        .ok_or(TLSDecodeError::MissingKey(self.client_random.clone()))
+                );
+                let exporter_secret = try_giving_back!(
+                    self,
+                    common_data
+                        .key_db
+                        .lookup_secret(&self.client_random, SecretType::ExporterSecret)
+                        .ok_or(TLSDecodeError::MissingKey(self.client_random.clone()))
+                );
 
                 // install traffic keys
                 let ks = KeyScheduleTraffic::from_data(
@@ -318,8 +349,8 @@ impl TLSState for WaitForFinish {
                     }));
                 }
             }
-            MessagePayload::ApplicationData(p) => {
-                (common_data.next)(to_client, p.0);
+            MessagePayload::ApplicationData(ref p) => {
+                (common_data.next)(to_client, p.0.clone());
             }
             _ => {}
         }
@@ -328,16 +359,14 @@ impl TLSState for WaitForFinish {
 }
 
 struct TLSFlow {
-    start: Nanos,
     server: TLSSide,
     client: TLSSide,
     state: Box<dyn TLSState>,
 }
 
 impl TLSFlow {
-    fn new(start_time: Nanos) -> Self {
+    fn new() -> Self {
         Self {
-            start: start_time,
             server: TLSSide::new(Side::Server),
             client: TLSSide::new(Side::Client),
             state: Box::new(ExpectClientHello {}),
@@ -345,12 +374,68 @@ impl TLSFlow {
     }
 }
 
+struct MessageMeta {
+    timing: TimingInfo,
+    target: IPTarget,
+    to_client: bool,
+}
+
 /// Accepts TLS data and queues messages for which we do not have the keys.
 ///
 /// Expects the state handling to be sufficiently idempotent that failing to
 /// get keys will not severely break it.
-struct KeyReorderBuffer {
-    queued: Vec<Message>,
+pub struct TLSFlowTracker {
+    queued: HashMap<ClientRandom, Vec<(MessageMeta, Message)>>,
+    downstream: TLSFlowTrackerInner,
+}
+
+#[derive(Debug)]
+enum OkOrRetry<T, E> {
+    Ok(T),
+    Retry(E),
+}
+
+impl TLSFlowTracker {
+    pub fn new(key_db: Arc<RwLock<KeyDB>>, next: Box<dyn Listener<Vec<u8>>>) -> Self {
+        TLSFlowTracker {
+            queued: Default::default(),
+            downstream: TLSFlowTrackerInner::new(key_db, next),
+        }
+    }
+}
+impl Listener<Vec<u8>> for TLSFlowTracker {
+    fn on_data(&mut self, timing: TimingInfo, target: IPTarget, to_client: bool, data: Vec<u8>) {
+        let meta = MessageMeta {
+            timing: timing.clone(),
+            target,
+            to_client,
+        };
+        match self.downstream.on_data(timing, target, to_client, data) {
+            OkOrRetry::Ok(()) => {}
+            OkOrRetry::Retry((cr, m)) => self
+                .queued
+                .entry(cr)
+                .or_insert_with(Vec::new)
+                .push((meta, m)),
+        }
+    }
+
+    fn on_side_data(&mut self, data: Box<dyn SideData>) {
+        // If the side data appears before the packet, the key db should
+        // already contain the data, so we don't care.
+        if let Some(upd) = data.as_any().downcast_ref::<side_data::NewKeyReceived>() {
+            if let Some(q) = self.queued.get_mut(&upd.client_random) {
+                for (meta, msg) in std::mem::take(q) {
+                    let kdb = self.downstream.key_db.clone();
+                    match self.downstream.do_entry_thing(&kdb, &meta, &msg) {
+                        OkOrRetry::Ok(_) => continue,
+                        OkOrRetry::Retry(cr) => q.push((meta, msg)),
+                    }
+                }
+            }
+        }
+        self.downstream.next.on_side_data(data)
+    }
 }
 
 // How do we deliver keys to the right connections? The key database knows
@@ -375,42 +460,112 @@ struct KeyReorderBuffer {
 // calls the next and extracts the data it cares about if any. The reason I
 // like this is that it keeps all the data flowing the same direction.
 
-pub struct TLSFlowTracker {
+pub struct TLSFlowTrackerInner {
     flows: HashMap<IPTarget, TLSFlow>,
-    // XXX: This is here because there is not an obvious way to stuff a
-    // reference to changing data into a Listener<Vec<u8>> without either making
-    // everyone receive that data (tbh, probably fine, but annoying) or doing
-    // this.
+    // FIXME: should this exist, or should the whole thing be handled as
+    // side data and then we just own our own?
     key_db: Arc<RwLock<KeyDB>>,
     next: Box<dyn Listener<Vec<u8>>>,
-}
-
-impl TLSFlowTracker {
-    pub fn new(key_db: Arc<RwLock<KeyDB>>, next: Box<dyn Listener<Vec<u8>>>) -> TLSFlowTracker {
-        TLSFlowTracker {
-            flows: Default::default(),
-            key_db,
-            next,
-        }
-    }
 }
 
 fn is_tls(target: &IPTarget) -> bool {
     target.server_port() == 443
 }
 
-impl Listener<Vec<u8>> for TLSFlowTracker {
-    fn on_data(&mut self, timing: TimingInfo, target: IPTarget, to_client: bool, data: Vec<u8>) {
-        if !is_tls(&target) {
-            return;
+impl TLSFlowTrackerInner {
+    pub fn new(
+        key_db: Arc<RwLock<KeyDB>>,
+        next: Box<dyn Listener<Vec<u8>>>,
+    ) -> TLSFlowTrackerInner {
+        TLSFlowTrackerInner {
+            flows: Default::default(),
+            key_db,
+            next,
         }
+    }
 
+    fn do_entry_thing(
+        &mut self,
+        key_db: &RwLock<KeyDB>,
+        meta: &MessageMeta,
+        message: &Message,
+    ) -> OkOrRetry<bool, ClientRandom> {
         let mut entry = self
             .flows
-            .entry(target)
-            .or_insert_with(|| TLSFlow::new(timing.received_on_wire));
+            .entry(meta.target)
+            .or_insert_with(|| TLSFlow::new());
 
-        let start = entry.start;
+        Self::do_message(
+            &mut entry,
+            key_db,
+            &mut self.next,
+            meta.to_client,
+            &message,
+            meta.timing.clone(),
+            meta.target,
+        )
+    }
+
+    fn do_message(
+        entry: &mut TLSFlow,
+        key_db: &RwLock<KeyDB>,
+        next: &mut Box<dyn Listener<Vec<u8>>>,
+        to_client: bool,
+        msg: &Message,
+        timing: TimingInfo,
+        target: IPTarget,
+    ) -> OkOrRetry<bool, ClientRandom> {
+        let state = std::mem::replace(&mut entry.state, Box::new(Failed {}));
+        let lock = key_db.read().unwrap();
+        let start = timing.received_on_wire;
+
+        let new_state = state.drive(
+            entry,
+            to_client,
+            msg,
+            CommonData {
+                key_db: &*lock,
+                next: &mut |to_client, data| {
+                    let mut timing = timing.clone();
+                    timing
+                        .other_times
+                        .insert::<timings::TlsConnectionStart>(start);
+
+                    next.on_data(timing, target, to_client, data);
+                },
+            },
+        );
+
+        match new_state {
+            Ok(s) => {
+                entry.state = s;
+                return OkOrRetry::Ok(true);
+            }
+            Err((state, TLSDecodeError::MissingKey(cr))) => {
+                // Stop immediately and let us get called again
+                // with no new data when we get a relevant key.
+                entry.state = state;
+                return OkOrRetry::Retry(cr);
+            }
+            Err((_s, e)) => {
+                tracing::warn!("failed while processing tls connection: {e}");
+                return OkOrRetry::Ok(false);
+            }
+        }
+    }
+
+    fn on_data(
+        &mut self,
+        timing: TimingInfo,
+        target: IPTarget,
+        to_client: bool,
+        data: Vec<u8>,
+    ) -> OkOrRetry<(), (ClientRandom, Message)> {
+        if !is_tls(&target) {
+            return OkOrRetry::Ok(());
+        }
+
+        let mut entry = self.flows.entry(target).or_insert_with(|| TLSFlow::new());
 
         let side = if to_client {
             &mut entry.client
@@ -434,47 +589,28 @@ impl Listener<Vec<u8>> for TLSFlowTracker {
                 Ok(Some(v)) => {
                     let msg = Message::try_from(v);
                     if let Ok(msg) = msg {
-                        tracing::debug!("msg {:?} to_client={to_client}: {:?}", &entry.state, &msg);
-                        let state = std::mem::replace(&mut entry.state, Box::new(Failed {}));
-                        let lock = self.key_db.read().unwrap();
-
-                        let new_state = state.drive(
+                        match Self::do_message(
                             &mut entry,
+                            &*self.key_db,
+                            &mut self.next,
                             to_client,
-                            msg,
-                            CommonData {
-                                key_db: &*lock,
-                                next: &mut |to_client, data| {
-                                    let mut timing = timing.clone();
-                                    timing
-                                        .other_times
-                                        .insert::<timings::TlsConnectionStart>(start);
-
-                                    self.next.on_data(timing, target, to_client, data);
-                                },
-                            },
-                        );
-
-                        match new_state {
-                            Ok(s) => entry.state = s,
-                            Err(e) => {
-                                tracing::warn!("failed while processing tls connection: {e}");
-                                return;
-                            }
+                            &msg,
+                            timing.clone(),
+                            target,
+                        ) {
+                            OkOrRetry::Ok(true) => continue,
+                            OkOrRetry::Ok(false) => return OkOrRetry::Ok(()),
+                            OkOrRetry::Retry(cr) => return OkOrRetry::Retry((cr, msg)),
                         }
                     }
                 }
                 Ok(None) => {
                     // Nothing to do, we just have to read more data to get more
                     // frames
-                    break;
+                    break OkOrRetry::Ok(());
                 }
                 Err(e) => tracing::warn!("error deframing tls: {e}"),
             }
         }
-    }
-
-    fn on_side_data(&mut self, data: Box<dyn SideData>) {
-        self.next.on_side_data(data);
     }
 }
