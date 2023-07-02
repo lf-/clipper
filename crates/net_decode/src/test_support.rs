@@ -5,9 +5,7 @@
 //! Support functionality for testing
 
 use std::{
-    cell::RefCell,
     fmt::{self, Write},
-    rc::Rc,
     sync::{Arc, RwLock},
 };
 
@@ -34,10 +32,10 @@ impl fmt::Display for Received<Vec<u8>> {
 }
 
 pub struct TestListener<T> {
-    pub received: Rc<RefCell<Vec<Received<T>>>>,
+    pub received: Arc<RwLock<Vec<Received<T>>>>,
 }
 
-impl<T> Listener<T> for TestListener<T> {
+impl<T: Send + Sync> Listener<T> for TestListener<T> {
     fn on_data(
         &mut self,
         timing: crate::listener::TimingInfo,
@@ -45,7 +43,7 @@ impl<T> Listener<T> for TestListener<T> {
         to_client: bool,
         data: T,
     ) {
-        self.received.borrow_mut().push(Received::Message(
+        self.received.write().unwrap().push(Received::Message(
             MessageMeta {
                 timing,
                 target,
@@ -56,7 +54,10 @@ impl<T> Listener<T> for TestListener<T> {
     }
 
     fn on_side_data(&mut self, data: Box<dyn SideData>) {
-        self.received.borrow_mut().push(Received::SideData(data))
+        self.received
+            .write()
+            .unwrap()
+            .push(Received::SideData(data))
     }
 }
 
@@ -74,6 +75,15 @@ impl FrameChomper for KeyMessageReorderer {
 
     fn on_keys(&mut self, dsb: &[u8]) {
         self.keys.push(dsb.to_vec());
+    }
+
+    fn on_key(
+        &mut self,
+        client_random: crate::key_db::ClientRandom,
+        secret_type: crate::key_db::SecretType,
+        secret: crate::key_db::Secret,
+    ) {
+        unimplemented!()
     }
 }
 
@@ -113,7 +123,7 @@ pub fn check(expected: expect_test::ExpectFile, received: &[Received<Vec<u8>>]) 
 
 pub fn tls_chomper(
     key_db: Arc<RwLock<KeyDB>>,
-    received: Rc<RefCell<Vec<Received<Vec<u8>>>>>,
+    received: Arc<RwLock<Vec<Received<Vec<u8>>>>>,
 ) -> EthernetChomper<TLSFlowTracker> {
     EthernetChomper {
         tcp_follower: TcpFollower::default(),

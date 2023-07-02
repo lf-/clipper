@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use crate::{
-    key_db::KeyDB,
+    key_db::{ClientRandom, KeyDB, Secret, SecretType},
     listener::{Listener, Nanos, TimingInfo},
     tcp_reassemble::TcpFollower,
     tls, Error,
@@ -142,6 +142,7 @@ pub struct EthernetChomper<Recv: Listener<Vec<u8>>> {
 pub trait FrameChomper {
     fn chomp(&mut self, timing: TimingInfo, packet: &[u8]) -> Result<(), Error>;
     fn on_keys(&mut self, dsb: &[u8]);
+    fn on_key(&mut self, client_random: ClientRandom, secret_type: SecretType, secret: Secret);
 }
 
 impl<Recv: Listener<Vec<u8>>> FrameChomper for EthernetChomper<Recv> {
@@ -201,6 +202,15 @@ impl<Recv: Listener<Vec<u8>>> FrameChomper for EthernetChomper<Recv> {
         for k in new_keys {
             self.recv.on_side_data(Box::new(k));
         }
+    }
+
+    fn on_key(&mut self, client_random: ClientRandom, typ: SecretType, secret: Secret) {
+        self.recv
+            .on_side_data(Box::new(tls::side_data::NewKeyReceived {
+                typ,
+                client_random,
+                secret,
+            }));
     }
 }
 

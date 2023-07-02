@@ -95,9 +95,9 @@ fn main() -> Result<(), Error> {
         Command::DumpPcap { file } => do_dump_pcap(file)?,
         Command::DevtoolsServer { file } => do_devtools_server(file)?,
         #[cfg(target_os = "linux")]
-        Command::Capture { args, output_file } => capture::do_capture(output_file, args)?,
+        Command::Capture { args, output_file } => capture::do_capture_to_pcap(output_file, args)?,
         #[cfg(target_os = "linux")]
-        Command::CaptureDevtools { args } => todo!(), //capture::do_capture_devtools(args)?,
+        Command::CaptureDevtools { args } => capture::do_capture_to_devtools(args)?,
     }
     Ok(())
 }

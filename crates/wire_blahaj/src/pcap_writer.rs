@@ -10,7 +10,7 @@
 //! However, this is *extremely* annoying if you are doing your pcap writing at
 //! the same time as gathering decryption secrets.
 
-use std::{collections::BTreeMap, io, pin::Pin};
+use std::{collections::BTreeMap, io};
 
 use pcap_parser::{
     DecryptionSecretsBlock, EnhancedPacketBlock, InterfaceDescriptionBlock, Linktype, OptionCode,

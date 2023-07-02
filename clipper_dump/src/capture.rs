@@ -11,8 +11,13 @@ use clipper_protocol::proto::embedding::{
     new_keys_req::Keys,
     NewKeysReq, NewKeysResp, TlsKeys,
 };
-use futures::StreamExt;
-use net_decode::key_db::{ClientRandom, KeyDB, Secret};
+use futures::{Future, StreamExt};
+use net_decode::{
+    chomp::{EthernetChomper, FrameChomper},
+    key_db::{ClientRandom, KeyDB, Secret, SecretType},
+    listener::TimingInfo,
+    tls::TLSFlowTracker,
+};
 use tokio::{
     fs::OpenOptions as TokioOpenOptions,
     io::{unix::AsyncFd, AsyncSeekExt, AsyncWriteExt},
@@ -26,18 +31,24 @@ use wire_blahaj::{
 
 use std::{
     fs::read_link,
+    future,
     os::{
         fd::{FromRawFd, OwnedFd, RawFd},
         unix::net::UnixListener,
     },
     path::{Path, PathBuf},
+    pin::Pin,
     sync::{Arc, RwLock},
 };
 
-use crate::Error;
+use crate::{
+    chomper,
+    devtools::{make_devtools_listener, run_devtools_server, DevtoolsListener},
+    Error,
+};
 
 struct EmbeddingServer {
-    key_db: Arc<RwLock<KeyDB>>,
+    send: tokio::sync::mpsc::Sender<(ClientRandom, SecretType, Secret)>,
 }
 
 #[tonic::async_trait]
@@ -54,17 +65,18 @@ impl ClipperEmbedding for EmbeddingServer {
                 label,
                 client_random,
                 secret,
-            })) => {
-                let mut lock = self.key_db.write().unwrap();
-                lock.on_secret(
+            })) => self
+                .send
+                .send((
                     ClientRandom(client_random),
                     label
                         .as_bytes()
                         .try_into()
                         .map_err(|_| tonic::Status::invalid_argument("bad secret type"))?,
                     Secret(secret),
-                )
-            }
+                ))
+                .await
+                .map_err(|_| tonic::Status::internal("closed channel?"))?,
             None => {}
         }
 
@@ -76,18 +88,27 @@ impl ClipperEmbedding for EmbeddingServer {
 }
 
 #[async_trait::async_trait]
-trait CaptureTarget {
+pub trait CaptureTarget {
     async fn on_packet(
         &mut self,
-        key_db: &RwLock<KeyDB>,
+        key_db: Arc<RwLock<KeyDB>>,
         meta: CapturedPacketMeta,
         packet: Vec<u8>,
     ) -> Result<(), Error>;
 
-    async fn shutdown(self, key_db: &RwLock<KeyDB>) -> Result<(), Error>;
+    async fn shutdown(self, key_db: Arc<RwLock<KeyDB>>) -> Result<(), Error>;
+
+    /// Called after the key has been added to the key db already.
+    async fn on_key(
+        &mut self,
+        _key_db: Arc<RwLock<KeyDB>>,
+        _client_random: ClientRandom,
+        _secret_type: SecretType,
+        _secret: Secret,
+    ) -> Result<(), Error>;
 }
 
-struct CaptureToPcap {
+pub struct CaptureToPcap {
     file: tokio::fs::File,
     packets_writer: tokio::io::BufWriter<tokio::fs::File>,
     writer: AsyncWriteHack,
@@ -95,7 +116,7 @@ struct CaptureToPcap {
 }
 
 impl CaptureToPcap {
-    async fn new(output_file: &Path) -> Result<Self, Error> {
+    pub async fn new(output_file: &Path) -> Result<Self, Error> {
         let mut file = TokioOpenOptions::new()
             .write(true)
             .truncate(true)
@@ -127,7 +148,7 @@ impl CaptureToPcap {
 impl CaptureTarget for CaptureToPcap {
     async fn on_packet(
         &mut self,
-        _key_db: &RwLock<KeyDB>,
+        _key_db: Arc<RwLock<KeyDB>>,
         meta: CapturedPacketMeta,
         packet: Vec<u8>,
     ) -> Result<(), Error> {
@@ -145,7 +166,7 @@ impl CaptureTarget for CaptureToPcap {
         Ok(())
     }
 
-    async fn shutdown(mut self, key_db: &RwLock<KeyDB>) -> Result<(), Error> {
+    async fn shutdown(mut self, key_db: Arc<RwLock<KeyDB>>) -> Result<(), Error> {
         self.packets_writer.flush().await?;
 
         self.pcap_writer
@@ -156,6 +177,84 @@ impl CaptureTarget for CaptureToPcap {
 
         packets_file.seek(std::io::SeekFrom::Start(0)).await?;
         tokio::io::copy(&mut packets_file, &mut self.file).await?;
+        Ok(())
+    }
+
+    async fn on_key(
+        &mut self,
+        _key_db: Arc<RwLock<KeyDB>>,
+        _client_random: ClientRandom,
+        _secret_type: SecretType,
+        _secret: Secret,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+pub struct CaptureToDevtools {
+    devtools_listener: Option<DevtoolsListener>,
+    chomper: Option<EthernetChomper<TLSFlowTracker>>,
+    join: tokio::task::JoinHandle<Result<(), Error>>,
+}
+
+impl CaptureToDevtools {
+    async fn new(terminate: CancellationToken) -> Self {
+        let (devtools_listener, bits) = make_devtools_listener();
+
+        let join = tokio::spawn(async move { run_devtools_server(bits, terminate).await });
+
+        Self {
+            join,
+            chomper: None,
+            devtools_listener: Some(devtools_listener),
+        }
+    }
+
+    fn init(&mut self, key_db: Arc<RwLock<KeyDB>>) {
+        if self.chomper.is_none() {
+            self.chomper = Some(chomper(
+                Box::new(self.devtools_listener.take().unwrap()),
+                key_db,
+            ));
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl CaptureTarget for CaptureToDevtools {
+    async fn on_packet(
+        &mut self,
+        key_db: Arc<RwLock<KeyDB>>,
+        meta: CapturedPacketMeta,
+        packet: Vec<u8>,
+    ) -> Result<(), Error> {
+        self.init(key_db);
+        self.chomper.as_mut().unwrap().chomp(
+            TimingInfo {
+                received_on_wire: wire_blahaj::ts_to_nanos(meta.time),
+                other_times: Default::default(),
+            },
+            &packet,
+        )
+    }
+
+    async fn shutdown(mut self, _key_db: Arc<RwLock<KeyDB>>) -> Result<(), Error> {
+        self.join.await??;
+        Ok(())
+    }
+
+    async fn on_key(
+        &mut self,
+        key_db: Arc<RwLock<KeyDB>>,
+        client_random: ClientRandom,
+        secret_type: SecretType,
+        secret: Secret,
+    ) -> Result<(), Error> {
+        self.init(key_db);
+        self.chomper
+            .as_mut()
+            .unwrap()
+            .on_key(client_random, secret_type, secret);
         Ok(())
     }
 }
@@ -172,9 +271,8 @@ async fn start_capture(
 
     let listener = tokio::net::UnixListener::from_std(listener)?;
     let listener_stream = tokio_stream::wrappers::UnixListenerStream::new(listener);
-    let embedding_server = EmbeddingServer {
-        key_db: key_db.clone(),
-    };
+    let (send, mut recv_keys) = tokio::sync::mpsc::channel(1000);
+    let embedding_server = EmbeddingServer { send };
 
     let mut server_join = tokio::spawn(
         tonic::transport::Server::builder()
@@ -187,10 +285,14 @@ async fn start_capture(
             v = cap.select_next_some() => {
                 let (v, meta) = v?;
 
-                target.on_packet(&*key_db, meta, v).await?;
+                target.on_packet(key_db.clone(), meta, v).await?;
+            }
+            Some((cr, ty, secret)) = recv_keys.recv() => {
+                key_db.write().unwrap().on_secret(cr.clone(), ty, secret.clone());
+                target.on_key(key_db.clone(), cr, ty, secret).await?;
             }
             _ = terminate.cancelled() => {
-                target.shutdown(&*key_db).await?;
+                target.shutdown(key_db.clone()).await?;
 
                 break Ok(());
             }
@@ -206,19 +308,22 @@ async fn start_capture(
 
 const SOCK_NAME: &'static str = "clipper.sock";
 
-struct ClipperLaunchHooks {
-    output_file: PathBuf,
+type MakeCapture<T> =
+    Box<dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = Result<T, Error>>>>>;
+
+struct ClipperLaunchHooks<T: CaptureTarget> {
+    make_capture: MakeCapture<T>,
     unix_sock_dir: PathBuf,
     unix_listener: Option<UnixListener>,
 }
 
-impl ClipperLaunchHooks {
+impl<T: CaptureTarget> ClipperLaunchHooks<T> {
     fn sock(&self) -> PathBuf {
         self.unix_sock_dir.join(SOCK_NAME)
     }
 }
 
-impl LaunchHooks for ClipperLaunchHooks {
+impl<T: CaptureTarget + Unpin + 'static> LaunchHooks for ClipperLaunchHooks<T> {
     fn parent_after_fork(&mut self) {
         let listener = UnixListener::bind(self.sock()).expect("bind unix sock");
         listener.set_nonblocking(true).expect("set nonblocking");
@@ -258,8 +363,13 @@ impl LaunchHooks for ClipperLaunchHooks {
                 }
             });
 
+            let make_capture = std::mem::replace(
+                &mut self.make_capture,
+                Box::new(|_| Box::pin(future::pending())),
+            );
+
             start_capture(
-                CaptureToPcap::new(&self.output_file).await?,
+                make_capture(cancel.clone()).await?,
                 listener,
                 capture_fd,
                 cancel,
@@ -291,14 +401,31 @@ impl LaunchHooks for ClipperLaunchHooks {
     }
 }
 
-pub fn do_capture(output_file: PathBuf, args: Vec<String>) -> Result<(), Error> {
+pub fn do_capture_to_pcap(file: PathBuf, args: Vec<String>) -> Result<(), Error> {
+    do_capture(
+        Box::new(move |_| Box::pin(async move { CaptureToPcap::new(&file).await })),
+        args,
+    )
+}
+
+pub fn do_capture<T: CaptureTarget + Unpin + 'static>(
+    make_capture: MakeCapture<T>,
+    args: Vec<String>,
+) -> Result<(), Error> {
     let temp_dir = tempfile::tempdir()?;
     let mut hooks = ClipperLaunchHooks {
-        output_file,
+        make_capture,
         unix_sock_dir: temp_dir.into_path(),
         unix_listener: None,
     };
 
     unsafe { run_in_ns(args, &mut hooks)? };
     Ok(())
+}
+
+pub fn do_capture_to_devtools(args: Vec<String>) -> Result<(), Error> {
+    do_capture(
+        Box::new(move |cancel| Box::pin(async move { Ok(CaptureToDevtools::new(cancel).await) })),
+        args,
+    )
 }

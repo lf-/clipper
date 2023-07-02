@@ -30,6 +30,7 @@ use net_decode::{
     listener::{Listener, Nanos, TimingInfo},
 };
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 use crate::{chomper, Error};
 
@@ -160,10 +161,14 @@ impl ClientState {
         &mut self,
         mut conn: devtools_server::ServerConnection,
         recv: impl Stream<Item = Arc<DevtoolsProtoEvent>>,
+        cancel: CancellationToken,
     ) -> Result<(), devtools_server::Error> {
         tokio::pin!(recv);
         loop {
             tokio::select! {
+                _ = cancel.cancelled() => {
+                    return Ok(());
+                }
                 msg = conn.next() => {
                     match msg {
                         Some(msg) => self.handle_msg(msg?, &mut conn).await?,
@@ -399,7 +404,7 @@ impl ClientState {
     }
 }
 
-struct DevtoolsListener {
+pub struct DevtoolsListener {
     send: Arc<EventBuffer<DevtoolsProtoEvent>>,
     response_bodies: Arc<RwLock<ResponseBodyTracker>>,
 }
@@ -426,8 +431,34 @@ impl Listener<HTTPStreamEvent> for DevtoolsListener {
 }
 
 pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_server::Error> {
-    let mut conns = ConnectionStream::new("127.0.0.1:1337".parse().unwrap()).await?;
+    let key_db = Arc::new(RwLock::new(KeyDB::default()));
+    let (devtools_listener, bits) = make_devtools_listener();
+    let mut chomper = chomper(Box::new(devtools_listener), key_db.clone());
+    chomp::dump_pcap_file(file, &mut chomper)?;
 
+    let cancel = CancellationToken::new();
+    let h = run_devtools_server(bits, cancel.clone());
+
+    loop {
+        tokio::select! {
+            r = h => {
+                cancel.cancel();
+                return r;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                cancel.cancel();
+                return Ok(());
+            }
+        }
+    }
+}
+
+pub struct ListenerBits {
+    event_buffer: Arc<EventBuffer<DevtoolsProtoEvent>>,
+    response_bodies: Arc<RwLock<ResponseBodyTracker>>,
+}
+
+pub fn make_devtools_listener() -> (DevtoolsListener, ListenerBits) {
     let event_buffer = Arc::new(EventBuffer::new(100, 1000));
     let response_bodies: Arc<RwLock<ResponseBodyTracker>> = Default::default();
     let devtools_listener = DevtoolsListener {
@@ -435,29 +466,47 @@ pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_serv
         response_bodies: response_bodies.clone(),
     };
 
-    let key_db = Arc::new(RwLock::new(KeyDB::default()));
-    let mut chomper = chomper(Box::new(devtools_listener), key_db.clone());
+    (
+        devtools_listener,
+        ListenerBits {
+            event_buffer,
+            response_bodies,
+        },
+    )
+}
 
-    chomp::dump_pcap_file(file, &mut chomper)?;
+pub async fn run_devtools_server(
+    bits: ListenerBits,
+    cancel: CancellationToken,
+) -> Result<(), devtools_server::Error> {
+    let mut conns = ConnectionStream::new("127.0.0.1:1337".parse().unwrap())
+        .await?
+        .fuse();
 
-    while let Some(conn) = conns.next().await {
-        let conn = conn?;
-        let recv = event_buffer.receiver();
-        let mut client_state = ClientState {
-            network_enabled: false,
-            response_bodies: response_bodies.clone(),
-        };
+    loop {
+        tokio::select! {
+            conn = conns.select_next_some() => {
+                let conn = conn?;
+                let recv = bits.event_buffer.receiver();
+                let mut client_state = ClientState {
+                    network_enabled: false,
+                    response_bodies: bits.response_bodies.clone(),
+                };
+                let cancel = cancel.clone();
 
-        tokio::spawn(async move {
-            // delay because chrome devtools protocol trace seems to miss
-            // really fast initial data 🙈🙉🙊
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            match client_state.handle_conn(conn, recv).await {
-                Ok(()) => {}
-                Err(e) => tracing::error!("error in websocket connection: {e}"),
+                tokio::spawn(async move {
+                    // delay because chrome devtools protocol trace seems to miss
+                    // really fast initial data 🙈🙉🙊
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    match client_state.handle_conn(conn, recv, cancel).await {
+                        Ok(()) => {}
+                        Err(e) => tracing::error!("error in websocket connection: {e}"),
+                    }
+                });
             }
-        });
+            _ = cancel.cancelled() => {
+                return Ok(());
+            }
+        }
     }
-
-    Ok(())
 }

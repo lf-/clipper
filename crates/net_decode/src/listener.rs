@@ -36,14 +36,14 @@ pub struct TimingInfo {
     pub other_times: TypeMap<Nanos>,
 }
 
-pub trait SideData: fmt::Debug {
+pub trait SideData: fmt::Debug + Send + Sync {
     /// Note massive footgun: if you are using this on Box you need to re-deref
     /// it: `(&*some_box).as_any()`. If you do not, it will wind up using the
     /// type ID of the box itself rather than the contents.
     fn as_any(&self) -> &dyn Any;
 }
 
-impl<T: fmt::Debug + Any + Sized> SideData for T {
+impl<T: fmt::Debug + Any + Sized + Send + Sync> SideData for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -66,7 +66,7 @@ pub struct MessageMeta {
 //
 // FIXME: This type seems ripe for refactoring, since owning the next Listener
 // in a chain and calling forward seems to be generic behaviour.
-pub trait Listener<MessageType> {
+pub trait Listener<MessageType>: Send + Sync {
     fn on_data(&mut self, timing: TimingInfo, target: IPTarget, to_client: bool, data: MessageType);
 
     /// Usually the expected implementation here is to forward the data along

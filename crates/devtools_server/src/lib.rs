@@ -7,13 +7,12 @@
 //! Used to provide the network tab's APIs.
 
 use std::{
-    marker::PhantomData,
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use chromiumoxide_types::{CallId, EventMessage};
+use chromiumoxide_types::CallId;
 use futures::{future::BoxFuture, SinkExt, Stream};
 use std::future::Future;
 use tokio::net::{TcpListener, TcpStream};

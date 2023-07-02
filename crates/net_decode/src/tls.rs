@@ -128,7 +128,7 @@ macro_rules! try_giving_back {
 
 type NextStateOrError = Result<Box<dyn TLSState>, (Box<dyn TLSState>, TLSDecodeError)>;
 
-trait TLSState: std::fmt::Debug {
+trait TLSState: std::fmt::Debug + Send + Sync {
     // FIXME: how to signal to change state
     fn drive(
         self: Box<Self>,
