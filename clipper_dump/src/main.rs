@@ -14,7 +14,7 @@ use std::{
 };
 
 use net_decode::{
-    chomp::{self, PacketChomper},
+    chomp::{self, EthernetChomper},
     http::{HTTPRequestTracker, HTTPStreamEvent},
     key_db::KeyDB,
     listener::{DebugListener, Listener},
@@ -51,10 +51,14 @@ enum Command {
 pub fn chomper(
     http_listener: Box<dyn Listener<HTTPStreamEvent>>,
     key_db: Arc<RwLock<KeyDB>>,
-) -> PacketChomper<TLSFlowTracker> {
-    PacketChomper {
+) -> EthernetChomper<TLSFlowTracker> {
+    EthernetChomper {
         tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::new(key_db, Box::new(HTTPRequestTracker::new(http_listener))),
+        recv: TLSFlowTracker::new(
+            key_db.clone(),
+            Box::new(HTTPRequestTracker::new(http_listener)),
+        ),
+        key_db,
     }
 }
 
@@ -62,7 +66,7 @@ fn do_dump_pcap(file: PathBuf) -> Result<(), Error> {
     let key_db = Arc::new(RwLock::new(KeyDB::default()));
     let mut chomper = chomper(Box::new(DebugListener {}), key_db.clone());
 
-    chomp::dump_pcap(file, &mut chomper, key_db)?;
+    chomp::dump_pcap_file(file, &mut chomper)?;
     Ok(())
 }
 

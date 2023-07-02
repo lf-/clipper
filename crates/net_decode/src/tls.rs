@@ -27,7 +27,7 @@ use rustls_intercept::{
 use crate::{
     chomp::IPTarget,
     key_db::{ClientRandom, KeyDB, SecretType},
-    listener::{Listener, Nanos, SideData, TimingInfo},
+    listener::{Listener, MessageMeta, SideData, TimingInfo},
 };
 
 pub mod timings {
@@ -374,12 +374,6 @@ impl TLSFlow {
     }
 }
 
-struct MessageMeta {
-    timing: TimingInfo,
-    target: IPTarget,
-    to_client: bool,
-}
-
 /// Accepts TLS data and queues messages for which we do not have the keys.
 ///
 /// Expects the state handling to be sufficiently idempotent that failing to
@@ -403,6 +397,7 @@ impl TLSFlowTracker {
         }
     }
 }
+
 impl Listener<Vec<u8>> for TLSFlowTracker {
     fn on_data(&mut self, timing: TimingInfo, target: IPTarget, to_client: bool, data: Vec<u8>) {
         let meta = MessageMeta {
@@ -423,13 +418,26 @@ impl Listener<Vec<u8>> for TLSFlowTracker {
     fn on_side_data(&mut self, data: Box<dyn SideData>) {
         // If the side data appears before the packet, the key db should
         // already contain the data, so we don't care.
-        if let Some(upd) = data.as_any().downcast_ref::<side_data::NewKeyReceived>() {
+        if let Some(upd) = (&*data)
+            .as_any()
+            .downcast_ref::<side_data::NewKeyReceived>()
+        {
+            tracing::debug!("upd: {upd:?}");
             if let Some(q) = self.queued.get_mut(&upd.client_random) {
+                let mut still_missing_keys = false;
                 for (meta, msg) in std::mem::take(q) {
                     let kdb = self.downstream.key_db.clone();
-                    match self.downstream.do_entry_thing(&kdb, &meta, &msg) {
-                        OkOrRetry::Ok(_) => continue,
-                        OkOrRetry::Retry(cr) => q.push((meta, msg)),
+
+                    if still_missing_keys {
+                        q.push((meta, msg));
+                    } else {
+                        match self.downstream.do_entry_thing(&kdb, &meta, &msg) {
+                            OkOrRetry::Ok(_) => continue,
+                            OkOrRetry::Retry(_cr) => {
+                                still_missing_keys = true;
+                                q.push((meta, msg))
+                            }
+                        }
                     }
                 }
             }
@@ -544,6 +552,7 @@ impl TLSFlowTrackerInner {
             Err((state, TLSDecodeError::MissingKey(cr))) => {
                 // Stop immediately and let us get called again
                 // with no new data when we get a relevant key.
+                tracing::debug!("Missing key for client_random {cr:?}, new state: {state:?}");
                 entry.state = state;
                 return OkOrRetry::Retry(cr);
             }
@@ -612,5 +621,53 @@ impl TLSFlowTrackerInner {
                 Err(e) => tracing::warn!("error deframing tls: {e}"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{cell::RefCell, io::Cursor, rc::Rc};
+
+    use super::*;
+    use crate::{chomp::dump_pcap, test_support::*};
+    use tracing_subscriber::prelude::*;
+
+    static NYA_DSB: &'static [u8] = include_bytes!("../corpus/nya-dsb.pcapng");
+
+    #[test]
+    fn test_decryption_inorder() {
+        let mut reader = Cursor::new(NYA_DSB);
+        let key_db: Arc<RwLock<KeyDB>> = Default::default();
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let mut chomper = tls_chomper(key_db, received.clone());
+
+        dump_pcap(&mut reader, &mut chomper).unwrap();
+
+        check(
+            expect_test::expect_file!("./test_output/nya_dsb_inorder"),
+            &*received.borrow(),
+        );
+    }
+
+    #[test]
+    fn test_decryption_reordered_keys() {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::Layer::new().without_time())
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
+
+        let mut reader = Cursor::new(NYA_DSB);
+        let key_db: Arc<RwLock<KeyDB>> = Default::default();
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let mut chomper = tls_chomper(key_db, received.clone());
+        let mut chomper2 = KeyMessageReorderer::default();
+
+        dump_pcap(&mut reader, &mut chomper2).unwrap();
+        chomper2.send_late_keys(&mut chomper).unwrap();
+
+        check(
+            expect_test::expect_file!("./test_output/nya_dsb_reordered"),
+            &*received.borrow(),
+        );
     }
 }

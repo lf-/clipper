@@ -144,7 +144,11 @@ impl KeyDB {
             });
     }
 
-    pub fn load_key_log(&mut self, key_log: &[u8]) {
+    pub fn load_key_log(
+        &mut self,
+        key_log: &[u8],
+        on_secret: &mut impl FnMut(ClientRandom, SecretType, Secret),
+    ) {
         let do_line = |line: &[u8]| -> Result<_, Box<dyn std::error::Error>> {
             if line.starts_with(b"#") {
                 return Err("comment, ignore me".into());
@@ -165,7 +169,12 @@ impl KeyDB {
         // FIXME: this is not compliant, should accept \r\n also.
         for line in key_log.split(|&b| b == b'\n') {
             if let Ok((ty, client_random, secret)) = do_line(line) {
-                self.on_secret(ClientRandom(client_random), ty, Secret(secret));
+                self.on_secret(
+                    ClientRandom(client_random.clone()),
+                    ty,
+                    Secret(secret.clone()),
+                );
+                on_secret(ClientRandom(client_random), ty, Secret(secret));
             }
         }
     }
@@ -192,7 +201,7 @@ mod test {
         let example = include_bytes!("testdata/sslkeylog.txt");
 
         let mut keydb = KeyDB::default();
-        keydb.load_key_log(example);
+        keydb.load_key_log(example, &mut |_, _, _| {});
 
         let hex = |s| hex::decode(s).unwrap();
 

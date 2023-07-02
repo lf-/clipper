@@ -6,7 +6,7 @@ use crate::{
     key_db::KeyDB,
     listener::{Listener, Nanos, TimingInfo},
     tcp_reassemble::TcpFollower,
-    Error,
+    tls, Error,
 };
 use pcap_parser::{
     traits::{PcapNGPacketBlock, PcapReaderIterator},
@@ -16,7 +16,7 @@ use pktparse::{ethernet::EtherType, tcp::TcpHeader};
 use std::{
     collections::BTreeMap,
     fmt::{self, Debug},
-    io::Cursor,
+    fs, io,
     net::{Ipv4Addr, Ipv6Addr},
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -133,12 +133,18 @@ impl IPTarget {
     }
 }
 
-pub struct PacketChomper<Recv: Listener<Vec<u8>>> {
+pub struct EthernetChomper<Recv: Listener<Vec<u8>>> {
     pub tcp_follower: TcpFollower,
     pub recv: Recv,
+    pub key_db: Arc<RwLock<KeyDB>>,
 }
 
-impl<Recv: Listener<Vec<u8>>> PacketChomper<Recv> {
+pub trait FrameChomper {
+    fn chomp(&mut self, timing: TimingInfo, packet: &[u8]) -> Result<(), Error>;
+    fn on_keys(&mut self, dsb: &[u8]);
+}
+
+impl<Recv: Listener<Vec<u8>>> FrameChomper for EthernetChomper<Recv> {
     fn chomp(&mut self, timing: TimingInfo, packet: &[u8]) -> Result<(), Error> {
         if let Ok((remain, frame)) = pktparse::ethernet::parse_ethernet_frame(&packet) {
             // tracing::debug!("frame! {:?}", &frame);
@@ -174,6 +180,27 @@ impl<Recv: Listener<Vec<u8>>> PacketChomper<Recv> {
             }
         }
         Ok(())
+    }
+
+    fn on_keys(&mut self, dsb: &[u8]) {
+        // We definitely don't want to be holding the lock when sending
+        // notifications of these downstream.
+        let mut new_keys = Vec::new();
+
+        {
+            let mut kdb = self.key_db.write().unwrap();
+            kdb.load_key_log(dsb, &mut |client_random, typ, secret| {
+                new_keys.push(tls::side_data::NewKeyReceived {
+                    typ,
+                    client_random,
+                    secret,
+                });
+            });
+        }
+
+        for k in new_keys {
+            self.recv.on_side_data(Box::new(k));
+        }
     }
 }
 
@@ -236,14 +263,16 @@ impl InterfaceDB {
     }
 }
 
-pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
-    file: PathBuf,
-    chomper: &mut PacketChomper<Recv>,
-    key_db: Arc<RwLock<KeyDB>>,
-) -> Result<(), Error> {
-    let contents = std::fs::read(file)?;
+pub fn dump_pcap_file(file: PathBuf, chomper: &mut dyn FrameChomper) -> Result<(), Error> {
+    let f = io::BufReader::new(fs::OpenOptions::new().read(true).open(file)?);
+    dump_pcap(f, chomper)
+}
 
-    let mut pcap = PcapNGReader::new(65536, Cursor::new(contents))?;
+pub fn dump_pcap<Reader>(reader: Reader, chomper: &mut dyn FrameChomper) -> Result<(), Error>
+where
+    Reader: io::Seek + io::Read,
+{
+    let mut pcap = PcapNGReader::new(65536, reader)?;
 
     let mut packet_count = 1u64;
     let mut iface_db = InterfaceDB::default();
@@ -265,8 +294,7 @@ pub fn dump_pcap<Recv: Listener<Vec<u8>>>(
                                     "DSB: {}",
                                     Show(&dsb.data[..dsb.secrets_len as usize])
                                 );
-                                let mut kdb = key_db.write().unwrap();
-                                kdb.load_key_log(&dsb.data[..dsb.secrets_len as usize]);
+                                chomper.on_keys(&dsb.data[..dsb.secrets_len as usize]);
                             }
                             pcap_parser::Block::EnhancedPacket(epb) => {
                                 let iface = match iface_db.get_interface(epb.if_id) {

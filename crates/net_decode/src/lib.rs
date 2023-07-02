@@ -7,6 +7,8 @@ pub mod http;
 pub mod key_db;
 pub mod listener;
 pub mod tcp_reassemble;
+#[cfg(test)]
+mod test_support;
 pub mod tls;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;

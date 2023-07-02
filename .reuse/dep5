@@ -4,6 +4,6 @@ Files: rustls-intercept/*
 Copyright: 2023 Rustls Contributors
 License: MIT OR Apache-2.0 OR ISC
 
-Files: crates/net_decode/corpus/*
+Files: crates/net_decode/corpus/* crates/net_decode/src/test_output/*
 Copyright: 2023 Jade Lovelace
 License: MPL-2.0

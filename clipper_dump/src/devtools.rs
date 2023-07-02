@@ -438,7 +438,7 @@ pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_serv
     let key_db = Arc::new(RwLock::new(KeyDB::default()));
     let mut chomper = chomper(Box::new(devtools_listener), key_db.clone());
 
-    chomp::dump_pcap(file, &mut chomper, key_db)?;
+    chomp::dump_pcap_file(file, &mut chomper)?;
 
     while let Some(conn) = conns.next().await {
         let conn = conn?;

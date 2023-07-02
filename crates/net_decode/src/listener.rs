@@ -36,8 +36,10 @@ pub struct TimingInfo {
     pub other_times: TypeMap<Nanos>,
 }
 
-/// Implement this trait on any side data types
 pub trait SideData: fmt::Debug {
+    /// Note massive footgun: if you are using this on Box you need to re-deref
+    /// it: `(&*some_box).as_any()`. If you do not, it will wind up using the
+    /// type ID of the box itself rather than the contents.
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -45,6 +47,12 @@ impl<T: fmt::Debug + Any + Sized> SideData for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+pub struct MessageMeta {
+    pub timing: TimingInfo,
+    pub target: IPTarget,
+    pub to_client: bool,
 }
 
 /// Type which receives some kind of messages from a layer up the stack.
