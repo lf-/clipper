@@ -640,23 +640,20 @@ impl TLSFlowTrackerInner {
 
         let mut entry = self.flows.entry(target).or_insert_with(|| TLSFlow::new());
 
+        if let Some(cr) = entry.state.blocked_on_keys() {
+            return OkOrRetry::Retry((cr, Queued::Raw(data)));
+        }
+
         let side = if to_client {
             &mut entry.client
         } else {
             &mut entry.server
         };
 
-        if let Some(cr) = entry.state.blocked_on_keys() {
-            return OkOrRetry::Retry((cr, Queued::Raw(data)));
-        }
-
         // We don't limit this buffer. Sadly there is not a practical way of
         // managing this buffer reasonably since we can't drop data on the
         // floor.
         side.read_buffer.extend(&data);
-        // The rustls buffer will just not read anything out of our buffer if
-        // it doesn't want to, which is fine.
-        let _ = side.deframer.read(&mut side.read_buffer);
 
         loop {
             // repeated due to borrowck
@@ -665,6 +662,10 @@ impl TLSFlowTrackerInner {
             } else {
                 &mut entry.server
             };
+            // The rustls buffer will just not read anything out of our buffer if
+            // it doesn't want to, which is fine.
+            let _ = side.deframer.read(&mut side.read_buffer);
+
             let msg = side.deframe();
 
             match msg {
