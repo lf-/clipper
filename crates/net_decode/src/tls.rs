@@ -137,6 +137,10 @@ trait TLSState: std::fmt::Debug {
         msg: &Message,
         common_data: CommonData<'_>,
     ) -> NextStateOrError;
+
+    fn blocked_on_keys(&self) -> Option<ClientRandom> {
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -358,6 +362,28 @@ impl TLSState for WaitForFinish {
     }
 }
 
+#[derive(Debug)]
+struct NeedKeys {
+    next: Box<dyn TLSState>,
+    client_random: ClientRandom,
+}
+
+impl TLSState for NeedKeys {
+    fn drive(
+        self: Box<Self>,
+        flow: &mut TLSFlow,
+        to_client: bool,
+        msg: &Message,
+        common_data: CommonData<'_>,
+    ) -> NextStateOrError {
+        self.next.drive(flow, to_client, msg, common_data)
+    }
+
+    fn blocked_on_keys(&self) -> Option<ClientRandom> {
+        Some(self.client_random.clone())
+    }
+}
+
 struct TLSFlow {
     server: TLSSide,
     client: TLSSide,
@@ -374,12 +400,24 @@ impl TLSFlow {
     }
 }
 
+// XXX: this whole queueing implementation fucking sucks yo.
+// 1. Client random values may be shared by adversarial clients, which screws
+//    us
+// 2. We can't backpressure it so we kinda just have to store the stuff.
+// 3. Splitting it into a retry layer and an execution layer is actually a good
+//    idea, but we need to unify the way we deal with the buffering.
+
+enum Queued {
+    Raw(Vec<u8>),
+    Message(Message),
+}
+
 /// Accepts TLS data and queues messages for which we do not have the keys.
 ///
 /// Expects the state handling to be sufficiently idempotent that failing to
 /// get keys will not severely break it.
 pub struct TLSFlowTracker {
-    queued: HashMap<ClientRandom, Vec<(MessageMeta, Message)>>,
+    queued: HashMap<ClientRandom, VecDeque<(MessageMeta, Queued)>>,
     downstream: TLSFlowTrackerInner,
 }
 
@@ -396,6 +434,33 @@ impl TLSFlowTracker {
             downstream: TLSFlowTrackerInner::new(key_db, next),
         }
     }
+
+    fn enqueue(&mut self, meta: MessageMeta, queued: Queued, client_random: ClientRandom) {
+        self.queued
+            .entry(client_random)
+            .or_insert_with(VecDeque::new)
+            .push_back((meta, queued));
+    }
+
+    fn process_queued(
+        downstream: &mut TLSFlowTrackerInner,
+        key_db: &RwLock<KeyDB>,
+        meta: &MessageMeta,
+        queued: Queued,
+    ) -> OkOrRetry<(), Queued> {
+        match queued {
+            Queued::Raw(v) => {
+                match downstream.on_data(meta.timing.clone(), meta.target, meta.to_client, v) {
+                    OkOrRetry::Ok(_) => OkOrRetry::Ok(()),
+                    OkOrRetry::Retry((_cr, queued)) => OkOrRetry::Retry(queued),
+                }
+            }
+            Queued::Message(msg) => match downstream.process_message(key_db, meta, &msg) {
+                OkOrRetry::Ok(_) => OkOrRetry::Ok(()),
+                OkOrRetry::Retry(_) => OkOrRetry::Retry(Queued::Message(msg)),
+            },
+        }
+    }
 }
 
 impl Listener<Vec<u8>> for TLSFlowTracker {
@@ -405,38 +470,34 @@ impl Listener<Vec<u8>> for TLSFlowTracker {
             target,
             to_client,
         };
+
         match self.downstream.on_data(timing, target, to_client, data) {
             OkOrRetry::Ok(()) => {}
-            OkOrRetry::Retry((cr, m)) => self
-                .queued
-                .entry(cr)
-                .or_insert_with(Vec::new)
-                .push((meta, m)),
+            OkOrRetry::Retry((cr, m)) => {
+                self.enqueue(meta, m, cr);
+            }
         }
     }
 
     fn on_side_data(&mut self, data: Box<dyn SideData>) {
         // If the side data appears before the packet, the key db should
-        // already contain the data, so we don't care.
+        // already contain the data, so we don't care about that case.
+        //
+        // If we are here we got the keys late.
         if let Some(upd) = (&*data)
             .as_any()
             .downcast_ref::<side_data::NewKeyReceived>()
         {
-            tracing::debug!("upd: {upd:?}");
+            tracing::debug!("new keys: {upd:?}");
             if let Some(q) = self.queued.get_mut(&upd.client_random) {
-                let mut still_missing_keys = false;
-                for (meta, msg) in std::mem::take(q) {
+                while let Some((meta, msg)) = q.pop_front() {
                     let kdb = self.downstream.key_db.clone();
 
-                    if still_missing_keys {
-                        q.push((meta, msg));
-                    } else {
-                        match self.downstream.do_entry_thing(&kdb, &meta, &msg) {
-                            OkOrRetry::Ok(_) => continue,
-                            OkOrRetry::Retry(_cr) => {
-                                still_missing_keys = true;
-                                q.push((meta, msg))
-                            }
+                    match Self::process_queued(&mut self.downstream, &kdb, &meta, msg) {
+                        OkOrRetry::Ok(_) => continue,
+                        OkOrRetry::Retry(queued) => {
+                            q.push_front((meta, queued));
+                            break;
                         }
                     }
                 }
@@ -492,7 +553,7 @@ impl TLSFlowTrackerInner {
         }
     }
 
-    fn do_entry_thing(
+    fn process_message(
         &mut self,
         key_db: &RwLock<KeyDB>,
         meta: &MessageMeta,
@@ -553,7 +614,10 @@ impl TLSFlowTrackerInner {
                 // Stop immediately and let us get called again
                 // with no new data when we get a relevant key.
                 tracing::debug!("Missing key for client_random {cr:?}, new state: {state:?}");
-                entry.state = state;
+                entry.state = Box::new(NeedKeys {
+                    client_random: cr.clone(),
+                    next: state,
+                });
                 return OkOrRetry::Retry(cr);
             }
             Err((_s, e)) => {
@@ -569,7 +633,7 @@ impl TLSFlowTrackerInner {
         target: IPTarget,
         to_client: bool,
         data: Vec<u8>,
-    ) -> OkOrRetry<(), (ClientRandom, Message)> {
+    ) -> OkOrRetry<(), (ClientRandom, Queued)> {
         if !is_tls(&target) {
             return OkOrRetry::Ok(());
         }
@@ -582,8 +646,17 @@ impl TLSFlowTrackerInner {
             &mut entry.server
         };
 
+        if let Some(cr) = entry.state.blocked_on_keys() {
+            return OkOrRetry::Retry((cr, Queued::Raw(data)));
+        }
+
+        // We don't limit this buffer. Sadly there is not a practical way of
+        // managing this buffer reasonably since we can't drop data on the
+        // floor.
         side.read_buffer.extend(&data);
-        side.deframer.read(&mut side.read_buffer).unwrap();
+        // The rustls buffer will just not read anything out of our buffer if
+        // it doesn't want to, which is fine.
+        let _ = side.deframer.read(&mut side.read_buffer);
 
         loop {
             // repeated due to borrowck
@@ -609,7 +682,9 @@ impl TLSFlowTrackerInner {
                         ) {
                             OkOrRetry::Ok(true) => continue,
                             OkOrRetry::Ok(false) => return OkOrRetry::Ok(()),
-                            OkOrRetry::Retry(cr) => return OkOrRetry::Retry((cr, msg)),
+                            OkOrRetry::Retry(cr) => {
+                                return OkOrRetry::Retry((cr, Queued::Message(msg)))
+                            }
                         }
                     }
                 }
@@ -630,7 +705,6 @@ mod test {
 
     use super::*;
     use crate::{chomp::dump_pcap, test_support::*};
-    use tracing_subscriber::prelude::*;
 
     static NYA_DSB: &'static [u8] = include_bytes!("../corpus/nya-dsb.pcapng");
 
@@ -651,11 +725,6 @@ mod test {
 
     #[test]
     fn test_decryption_reordered_keys() {
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::fmt::Layer::new().without_time())
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-
         let mut reader = Cursor::new(NYA_DSB);
         let key_db: Arc<RwLock<KeyDB>> = Default::default();
         let received = Rc::new(RefCell::new(Vec::new()));
