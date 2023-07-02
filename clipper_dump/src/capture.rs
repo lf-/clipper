@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::Response;
 use wire_blahaj::{
     pcap_writer::{AsyncWriteHack, PcapWriter},
-    unprivileged::{run_in_ns, LaunchHooks},
+    unprivileged::{run_in_ns, CapturedPacketMeta, LaunchHooks},
 };
 
 use std::{
@@ -75,34 +75,98 @@ impl ClipperEmbedding for EmbeddingServer {
     }
 }
 
+#[async_trait::async_trait]
+trait CaptureTarget {
+    async fn on_packet(
+        &mut self,
+        key_db: &RwLock<KeyDB>,
+        meta: CapturedPacketMeta,
+        packet: Vec<u8>,
+    ) -> Result<(), Error>;
+
+    async fn shutdown(self, key_db: &RwLock<KeyDB>) -> Result<(), Error>;
+}
+
+struct CaptureToPcap {
+    file: tokio::fs::File,
+    packets_writer: tokio::io::BufWriter<tokio::fs::File>,
+    writer: AsyncWriteHack,
+    pcap_writer: PcapWriter,
+}
+
+impl CaptureToPcap {
+    async fn new(output_file: &Path) -> Result<Self, Error> {
+        let mut file = TokioOpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(output_file)
+            .await?;
+        // XXX: to comply with the pcapng standard, which states that DSB entries
+        // SHOULD be before the affected packets, we need to put the packets
+        // somewhere. WELL, since you can just concatenate pcapng stuff together,
+        // let's just write the packets into a tempfile and on exit copy it back
+        // into the main file. Horrible but *so* funny.
+        let packets_file = tokio::fs::File::from_std(tempfile::tempfile()?);
+        let packets_writer = tokio::io::BufWriter::new(packets_file);
+
+        let mut writer = AsyncWriteHack::default();
+        let pcap_writer = PcapWriter::new(&mut writer)?;
+        writer.flush_downstream(&mut file).await?;
+
+        Ok(Self {
+            file,
+            pcap_writer,
+            writer,
+            packets_writer,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl CaptureTarget for CaptureToPcap {
+    async fn on_packet(
+        &mut self,
+        _key_db: &RwLock<KeyDB>,
+        meta: CapturedPacketMeta,
+        packet: Vec<u8>,
+    ) -> Result<(), Error> {
+        self.pcap_writer.on_packet(
+            &mut self.writer,
+            wire_blahaj::ts_to_nanos(meta.time),
+            meta.if_index as u32,
+            &packet,
+        )?;
+        self.writer
+            .flush_downstream(&mut self.packets_writer)
+            .await?;
+
+        tracing::trace!("pakit {} {}", meta.time, hexdump::HexDumper::new(&packet));
+        Ok(())
+    }
+
+    async fn shutdown(mut self, key_db: &RwLock<KeyDB>) -> Result<(), Error> {
+        self.packets_writer.flush().await?;
+
+        self.pcap_writer
+            .on_dsb(&mut self.writer, &key_db.read().unwrap().to_key_log())?;
+        self.writer.flush_downstream(&mut self.file).await?;
+
+        let mut packets_file = self.packets_writer.into_inner();
+
+        packets_file.seek(std::io::SeekFrom::Start(0)).await?;
+        tokio::io::copy(&mut packets_file, &mut self.file).await?;
+        Ok(())
+    }
+}
+
 async fn start_capture(
-    output_file: &Path,
+    mut target: (impl CaptureTarget + Unpin),
     listener: UnixListener,
     raw_fd: RawFd,
     terminate: CancellationToken,
 ) -> Result<(), Error> {
     let mut cap = unsafe { wire_blahaj::unprivileged::UnprivilegedCapture::new(raw_fd)? }.fuse();
-    let async_writer = TokioOpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(output_file)
-        .await?;
-
-    // XXX: to comply with the pcapng standard, which states that DSB entries
-    // SHOULD be before the affected packets, we need to put the packets
-    // somewhere. WELL, since you can just concatenate pcapng stuff together,
-    // let's just write the packets into a tempfile and on exit copy it back
-    // into the main file. Horrible but *so* funny.
-    let mut packets_file = tokio::fs::File::from_std(tempfile::tempfile()?);
-    let packets_writer = tokio::io::BufWriter::new(&mut packets_file);
-
-    tokio::pin!(async_writer);
-    tokio::pin!(packets_writer);
-
-    let mut writer = AsyncWriteHack::default();
-    let mut pcap_writer = PcapWriter::new(&mut writer)?;
-    writer.flush_downstream(&mut async_writer).await?;
 
     let key_db: Arc<RwLock<KeyDB>> = Default::default();
 
@@ -123,25 +187,10 @@ async fn start_capture(
             v = cap.select_next_some() => {
                 let (v, meta) = v?;
 
-                pcap_writer.on_packet(
-                    &mut writer,
-                    wire_blahaj::ts_to_nanos(meta.time),
-                    meta.if_index as u32,
-                    &v,
-                )?;
-                writer.flush_downstream(&mut packets_writer).await?;
-
-                tracing::trace!("pakit {} {}", meta.time, hexdump::HexDumper::new(&v));
+                target.on_packet(&*key_db, meta, v).await?;
             }
             _ = terminate.cancelled() => {
-                packets_writer.flush().await?;
-                drop(packets_writer);
-
-                pcap_writer.on_dsb(&mut writer, &key_db.read().unwrap().to_key_log())?;
-                writer.flush_downstream(&mut async_writer).await?;
-
-                packets_file.seek(std::io::SeekFrom::Start(0)).await?;
-                tokio::io::copy(&mut packets_file, &mut async_writer).await?;
+                target.shutdown(&*key_db).await?;
 
                 break Ok(());
             }
@@ -209,7 +258,13 @@ impl LaunchHooks for ClipperLaunchHooks {
                 }
             });
 
-            start_capture(&self.output_file, listener, capture_fd, cancel).await
+            start_capture(
+                CaptureToPcap::new(&self.output_file).await?,
+                listener,
+                capture_fd,
+                cancel,
+            )
+            .await
         }) {
             Ok(_) => {}
             Err(e) => tracing::error!("Error capturing: {e}"),

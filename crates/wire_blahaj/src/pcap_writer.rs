@@ -47,7 +47,7 @@ impl io::Write for AsyncWriteHack {
 impl AsyncWriteHack {
     pub async fn flush_downstream(
         &mut self,
-        async_writer: &mut Pin<&mut impl tokio::io::AsyncWrite>,
+        async_writer: &mut (impl tokio::io::AsyncWrite + Unpin),
     ) -> io::Result<()> {
         let writer = self.writer.get_mut();
         AsyncWriteExt::write_all(async_writer, &writer).await?;

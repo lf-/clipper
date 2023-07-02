@@ -31,17 +31,22 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(clap::Parser, Debug)]
 enum Command {
-    DumpPcap {
-        file: PathBuf,
-    },
-    DevtoolsServer {
-        file: PathBuf,
-    },
+    /// Debug: run a pcap through the clipper network stack
+    DumpPcap { file: PathBuf },
+    /// Starts a devtools server on a pcapng file.
+    DevtoolsServer { file: PathBuf },
     /// Invokes a program with capture. Does not require root on Linux.
     Capture {
         /// File to write a pcapng to.
         #[clap(short = 'o', long)]
         output_file: PathBuf,
+
+        /// Arguments for the program to invoke.
+        #[clap(num_args = 0..)]
+        args: Vec<String>,
+    },
+    /// Serves a devtools server while capturing packets
+    CaptureDevtools {
         /// Arguments for the program to invoke.
         #[clap(num_args = 0..)]
         args: Vec<String>,
@@ -91,6 +96,8 @@ fn main() -> Result<(), Error> {
         Command::DevtoolsServer { file } => do_devtools_server(file)?,
         #[cfg(target_os = "linux")]
         Command::Capture { args, output_file } => capture::do_capture(output_file, args)?,
+        #[cfg(target_os = "linux")]
+        Command::CaptureDevtools { args } => todo!(), //capture::do_capture_devtools(args)?,
     }
     Ok(())
 }
