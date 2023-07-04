@@ -320,11 +320,76 @@ impl HTTP1Flow {
 
         to_consume
     }
+
+    fn handle_request(
+        &mut self,
+        timing: &TimingInfo,
+        target: IPTarget,
+        to_client: bool,
+        next: &mut dyn Listener<HTTPStreamEvent>,
+        new_request_id: &mut impl FnMut() -> RequestId,
+        data: &mut Vec<u8>,
+    ) {
+        while data.len() > 0 {
+            let onward = OnwardData {
+                timing: timing.clone(),
+                target,
+                new_request_id,
+                next,
+            };
+
+            let side_state = if to_client {
+                self.client_state
+            } else {
+                self.server_state
+            };
+
+            let eaten = match (to_client, side_state) {
+                (false, HTTP1ParserState::RecvHeaders) => {
+                    match self.do_server_recv_headers(&data, onward) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                "request_id={} error parsing http request: {e}",
+                                self.request_id
+                            );
+                            self.server_state = HTTP1ParserState::Error;
+                            0
+                        }
+                    }
+                }
+                (false, HTTP1ParserState::Body) => {
+                    self.stream_body(to_client, data.clone(), onward)
+                }
+                (true, HTTP1ParserState::RecvHeaders) => {
+                    match self.do_client_recv_headers(&data, onward) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                "request_id={} error parsing http response: {e}",
+                                self.request_id
+                            );
+                            self.client_state = HTTP1ParserState::Error;
+                            0
+                        }
+                    }
+                }
+                (true, HTTP1ParserState::Body) => self.stream_body(to_client, data.clone(), onward),
+                (_, HTTP1ParserState::Error) => return,
+            };
+
+            *data = data[eaten..].to_vec();
+        }
+    }
+}
+
+enum HTTPFlow {
+    HTTP1Flow(HTTP1Flow),
 }
 
 pub struct HTTPRequestTracker {
     request_id: RequestId,
-    flows: HashMap<IPTarget, HTTP1Flow>,
+    flows: HashMap<IPTarget, HTTPFlow>,
     next: Box<dyn Listener<HTTPStreamEvent>>,
 }
 
@@ -352,72 +417,64 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
             i
         };
 
-        let entry = self.flows.entry(target).or_insert_with(|| HTTP1Flow {
-            request_id: new_request_id(),
-            ..Default::default()
+        let entry = self.flows.entry(target).or_insert_with(|| {
+            HTTPFlow::HTTP1Flow(HTTP1Flow {
+                request_id: new_request_id(),
+                ..Default::default()
+            })
         });
         // tracing::debug!(
         //     "data to_client={to_client}:\n{}",
         //     hexdump::HexDumper::new(&data)
         // );
 
-        tracing::debug!(?entry.client_state, ?entry.server_state);
-
-        while data.len() > 0 {
-            let onward = OnwardData {
-                timing: timing.clone(),
-                target,
-                new_request_id: &mut new_request_id,
-                next: &mut *self.next,
-            };
-
-            let side_state = if to_client {
-                entry.client_state
-            } else {
-                entry.server_state
-            };
-
-            let eaten = match (to_client, side_state) {
-                (false, HTTP1ParserState::RecvHeaders) => {
-                    match entry.do_server_recv_headers(&data, onward) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::warn!(
-                                "request_id={} error parsing http request: {e}",
-                                entry.request_id
-                            );
-                            entry.server_state = HTTP1ParserState::Error;
-                            0
-                        }
-                    }
-                }
-                (false, HTTP1ParserState::Body) => {
-                    entry.stream_body(to_client, data.clone(), onward)
-                }
-                (true, HTTP1ParserState::RecvHeaders) => {
-                    match entry.do_client_recv_headers(&data, onward) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::warn!(
-                                "request_id={} error parsing http response: {e}",
-                                entry.request_id
-                            );
-                            entry.client_state = HTTP1ParserState::Error;
-                            0
-                        }
-                    }
-                }
-                (true, HTTP1ParserState::Body) => {
-                    entry.stream_body(to_client, data.clone(), onward)
-                }
-                (_, HTTP1ParserState::Error) => return,
-            };
-
-            data = data[eaten..].to_vec();
+        match entry {
+            HTTPFlow::HTTP1Flow(entry) => {
+                tracing::debug!(?entry.client_state, ?entry.server_state);
+                entry.handle_request(
+                    &timing,
+                    target,
+                    to_client,
+                    &mut *self.next,
+                    &mut new_request_id,
+                    &mut data,
+                )
+            }
         }
     }
 
     fn on_side_data(&mut self, data: Box<dyn SideData>) {
         self.next.on_side_data(data);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{
+        io::Cursor,
+        sync::{Arc, RwLock},
+    };
+
+    use crate::{chomp::dump_pcap, key_db::KeyDB, test_support::*};
+
+    use super::HTTPStreamEvent;
+
+    fn http_test(f: &[u8]) -> Vec<Received<HTTPStreamEvent>> {
+        let mut reader = Cursor::new(f);
+        let key_db: Arc<RwLock<KeyDB>> = Default::default();
+        let received = Arc::new(RwLock::new(Vec::new()));
+        let mut chomper = http_chomper(key_db, received.clone());
+
+        dump_pcap(&mut reader, &mut chomper).unwrap();
+        let mut lock = received.write().unwrap();
+        std::mem::take(&mut *lock)
+    }
+
+    #[test]
+    fn test_simple_http() {
+        check(
+            expect_test::expect_file!("./test_output/http/h1_simple"),
+            &http_test(NYA_DSB),
+        )
     }
 }

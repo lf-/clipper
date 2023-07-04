@@ -769,9 +769,6 @@ mod test {
     use super::*;
     use crate::{chomp::dump_pcap, test_support::*};
 
-    static NYA_DSB: &'static [u8] = include_bytes!("../corpus/nya-dsb.pcapng");
-    static H2: &'static [u8] = include_bytes!("../corpus/http2-conn-reuse.pcapng");
-
     fn inorder_test(f: &[u8]) -> Vec<Received<Vec<u8>>> {
         let mut reader = Cursor::new(f);
         let key_db: Arc<RwLock<KeyDB>> = Default::default();
@@ -786,7 +783,7 @@ mod test {
     #[test]
     fn test_decryption_inorder() {
         check(
-            expect_test::expect_file!("./test_output/nya_dsb_inorder"),
+            expect_test::expect_file!("./test_output/tls/nya_dsb_inorder"),
             &inorder_test(NYA_DSB),
         );
     }
@@ -803,7 +800,7 @@ mod test {
         chomper2.send_late_keys(&mut chomper).unwrap();
 
         check(
-            expect_test::expect_file!("./test_output/nya_dsb_reordered"),
+            expect_test::expect_file!("./test_output/tls/nya_dsb_reordered"),
             &*received.read().unwrap(),
         );
     }
@@ -811,7 +808,7 @@ mod test {
     #[test]
     fn test_h2_alpn() {
         check(
-            expect_test::expect_file!("./test_output/h2"),
+            expect_test::expect_file!("./test_output/tls/h2"),
             &inorder_test(H2),
         );
     }
