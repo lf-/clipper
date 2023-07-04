@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub static NYA_DSB: &'static [u8] = include_bytes!("../corpus/nya-dsb.pcapng");
+pub static H1_CONN_REUSE: &'static [u8] = include_bytes!("../corpus/http-conn-reuse.pcapng");
 pub static H2: &'static [u8] = include_bytes!("../corpus/http2-conn-reuse.pcapng");
 
 pub enum Received<T> {

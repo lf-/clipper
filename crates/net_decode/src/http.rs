@@ -471,10 +471,18 @@ mod test {
     }
 
     #[test]
-    fn test_simple_http() {
+    fn test_h1_simple() {
         check(
             expect_test::expect_file!("./test_output/http/h1_simple"),
             &http_test(NYA_DSB),
+        )
+    }
+
+    #[test]
+    fn test_h1_conn_reuse() {
+        check(
+            expect_test::expect_file!("./test_output/http/h1_conn_reuse"),
+            &http_test(H1_CONN_REUSE),
         )
     }
 }
