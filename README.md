@@ -66,7 +66,7 @@ It can then send the keys onwards. Planned ways to send them onwards:
 
 - [x] Print to stdout
 - [x] Implement SSLKEYLOGFILE
-- [ ] Send to clipper service over an IPC socket
+- [x] Send to clipper service over an IPC socket
 
 Inspired by [openssl-keylog] and [mirrord-layer] ([blog
 post][mirrord-blogpost]).
@@ -145,3 +145,12 @@ It looks like tls-parser does not actually support decrypting sessions. So
 that's No Fun. However, I am also not foolish enough to write a TLS
 implementation. Thus we are forking rustls to do horrible horrible crimes to
 it and poke all the internals. Exciting!
+
+### Chrome Dev Tools
+
+You can crime the included dev tools to connect to another host with:
+
+`devtools://devtools/bundled/inspector.html?ws=localhost:1337`
+
+This is sort of evil but it means that we don't have to build or distribute
+devtools, an annoying task.
