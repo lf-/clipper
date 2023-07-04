@@ -19,7 +19,6 @@ use tracing_subscriber::{fmt, prelude::*};
 
 mod hooks;
 mod log_target;
-mod preload;
 mod rpc;
 
 fn pick_target() -> Box<dyn LogTarget> {

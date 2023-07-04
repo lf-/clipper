@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use std::{
+    cell::RefCell,
     collections::{HashMap, VecDeque},
     error::Error as StdError,
     fmt,
@@ -20,6 +21,7 @@ use rustls_intercept::{
             message::{Message, MessagePayload, PlainMessage},
         },
     },
+    msgs::handshake::ServerExtension,
     require_handshake_msg, CommonState, Error as RustlsError, HandshakeType, Side,
     SupportedCipherSuite, Tls13CipherSuite, ALL_CIPHER_SUITES,
 };
@@ -35,13 +37,39 @@ pub mod timings {
 }
 
 pub mod side_data {
-    use crate::key_db::{ClientRandom, Secret, SecretType};
+    use crate::{
+        chomp::IPTarget,
+        key_db::{ClientRandom, Secret, SecretType},
+    };
 
+    use super::ProtocolName;
+
+    /// Expected to be fed into the stack when a new key is received by the
+    /// keys service. The TLS decoding will use these messages to dequeue any
+    /// decryptions that are pending keys.
     #[derive(Debug)]
     pub struct NewKeyReceived {
         pub typ: SecretType,
         pub client_random: ClientRandom,
         pub secret: Secret,
+    }
+
+    /// Fired by `net_decode::tls` when an EncryptedExtensions message
+    /// with ALPN data is received by the client.
+    #[derive(Debug)]
+    pub struct ALPNCompleted {
+        pub target: IPTarget,
+        pub protocols: Vec<ProtocolName>,
+    }
+}
+
+pub struct ProtocolName(pub Vec<u8>);
+
+impl fmt::Debug for ProtocolName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("ProtocolName")
+            .field(&misc::Show(&self.0))
+            .finish()
     }
 }
 
@@ -115,6 +143,7 @@ impl TLSSide {
 struct CommonData<'a> {
     key_db: &'a KeyDB,
     next: &'a mut dyn FnMut(bool, Vec<u8>),
+    on_alpn_completed: &'a mut dyn FnMut(Vec<ProtocolName>),
 }
 
 macro_rules! try_giving_back {
@@ -305,14 +334,33 @@ impl TLSState for WaitForFinish {
             MessagePayload::Handshake {
                 parsed:
                     HandshakeMessagePayload {
+                        typ: HandshakeType::EncryptedExtensions,
+                        payload: HandshakePayload::EncryptedExtensions(ref exts),
+                    },
+                encoded: _,
+            } => {
+                let protos: Option<Vec<_>> = exts.iter().find_map(|ext| match ext {
+                    ServerExtension::Protocols(protos) => Some(
+                        protos
+                            .iter()
+                            .map(|p| ProtocolName(p.as_ref().to_vec()))
+                            .collect(),
+                    ),
+                    _ => None,
+                });
+
+                if let Some(protos) = protos {
+                    (common_data.on_alpn_completed)(protos)
+                }
+            }
+            MessagePayload::Handshake {
+                parsed:
+                    HandshakeMessagePayload {
                         typ: HandshakeType::Finished,
                         payload: _,
                     },
                 encoded: _,
             } => {
-                // TODO: this probably buggers up the client's keys causing the
-                // server's response to be unavailable
-
                 // FIXME: key switching
                 let client_traffic_secret = try_giving_back!(
                     self,
@@ -349,6 +397,11 @@ impl TLSState for WaitForFinish {
                     ks.load_keys(Side::Client, &mut flow.client.common_state);
                     return Ok(Box::new(Self {
                         server_finished: true,
+                        ..*self
+                    }));
+                } else {
+                    return Ok(Box::new(Self {
+                        client_finished: true,
                         ..*self
                     }));
                 }
@@ -587,6 +640,7 @@ impl TLSFlowTrackerInner {
         let state = std::mem::replace(&mut entry.state, Box::new(Failed {}));
         let lock = key_db.read().unwrap();
         let start = timing.received_on_wire;
+        let next = RefCell::new(next);
 
         let new_state = state.drive(
             entry,
@@ -600,7 +654,14 @@ impl TLSFlowTrackerInner {
                         .other_times
                         .insert::<timings::TlsConnectionStart>(start);
 
-                    next.on_data(timing, target, to_client, data);
+                    next.borrow_mut().on_data(timing, target, to_client, data);
+                },
+                on_alpn_completed: &mut |protos| {
+                    next.borrow_mut()
+                        .on_side_data(Box::new(side_data::ALPNCompleted {
+                            target,
+                            protocols: protos,
+                        }))
                 },
             },
         );
@@ -672,6 +733,7 @@ impl TLSFlowTrackerInner {
                 Ok(Some(v)) => {
                     let msg = Message::try_from(v);
                     if let Ok(msg) = msg {
+                        tracing::trace!(?entry.state, ?to_client, ?msg);
                         match Self::do_message(
                             &mut entry,
                             &*self.key_db,
@@ -702,25 +764,30 @@ impl TLSFlowTrackerInner {
 
 #[cfg(test)]
 mod test {
-    use std::{cell::RefCell, io::Cursor, rc::Rc};
+    use std::io::Cursor;
 
     use super::*;
     use crate::{chomp::dump_pcap, test_support::*};
 
     static NYA_DSB: &'static [u8] = include_bytes!("../corpus/nya-dsb.pcapng");
+    static H2: &'static [u8] = include_bytes!("../corpus/http2-conn-reuse.pcapng");
 
-    #[test]
-    fn test_decryption_inorder() {
-        let mut reader = Cursor::new(NYA_DSB);
+    fn inorder_test(f: &[u8]) -> Vec<Received<Vec<u8>>> {
+        let mut reader = Cursor::new(f);
         let key_db: Arc<RwLock<KeyDB>> = Default::default();
-        let received = Rc::new(RefCell::new(Vec::new()));
+        let received = Arc::new(RwLock::new(Vec::new()));
         let mut chomper = tls_chomper(key_db, received.clone());
 
         dump_pcap(&mut reader, &mut chomper).unwrap();
+        let mut lock = received.write().unwrap();
+        std::mem::take(&mut *lock)
+    }
 
+    #[test]
+    fn test_decryption_inorder() {
         check(
             expect_test::expect_file!("./test_output/nya_dsb_inorder"),
-            &*received.borrow(),
+            &inorder_test(NYA_DSB),
         );
     }
 
@@ -728,7 +795,7 @@ mod test {
     fn test_decryption_reordered_keys() {
         let mut reader = Cursor::new(NYA_DSB);
         let key_db: Arc<RwLock<KeyDB>> = Default::default();
-        let received = Rc::new(RefCell::new(Vec::new()));
+        let received = Arc::new(RwLock::new(Vec::new()));
         let mut chomper = tls_chomper(key_db, received.clone());
         let mut chomper2 = KeyMessageReorderer::default();
 
@@ -737,7 +804,15 @@ mod test {
 
         check(
             expect_test::expect_file!("./test_output/nya_dsb_reordered"),
-            &*received.borrow(),
+            &*received.read().unwrap(),
+        );
+    }
+
+    #[test]
+    fn test_h2_alpn() {
+        check(
+            expect_test::expect_file!("./test_output/h2"),
+            &inorder_test(H2),
         );
     }
 }

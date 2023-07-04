@@ -214,19 +214,6 @@ impl<Recv: Listener<Vec<u8>>> FrameChomper for EthernetChomper<Recv> {
     }
 }
 
-struct Show<'a>(&'a [u8]);
-impl<'a> fmt::Display for Show<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\"")?;
-        for &ch in self.0 {
-            for part in std::ascii::escape_default(ch) {
-                fmt::Write::write_char(f, part as char)?;
-            }
-        }
-        write!(f, "\"")
-    }
-}
-
 /// Timestamps in pcapng have resolution dependent on the capture interface.
 /// This is a pain in the ass, but we have to implement it.
 struct InterfaceDescriptor {
@@ -302,7 +289,7 @@ where
                             pcap_parser::Block::DecryptionSecrets(dsb) => {
                                 tracing::debug!(
                                     "DSB: {}",
-                                    Show(&dsb.data[..dsb.secrets_len as usize])
+                                    misc::Show(&dsb.data[..dsb.secrets_len as usize])
                                 );
                                 chomper.on_keys(&dsb.data[..dsb.secrets_len as usize]);
                             }

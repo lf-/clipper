@@ -1142,6 +1142,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "misc"
+version = "0.1.0"
+
+[[package]]
 name = "multimap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1157,6 +1161,7 @@ dependencies = [
  "hexdump",
  "http",
  "httparse",
+ "misc",
  "pcap-parser",
  "pktparse",
  "proptest",
