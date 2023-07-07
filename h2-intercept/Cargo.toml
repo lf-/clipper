@@ -1,5 +1,5 @@
 [package]
-name = "h2"
+name = "h2-intercept"
 # When releasing to crates.io:
 # - Update doc URL.
 #   - html_root_url.
@@ -30,15 +30,6 @@ stream = []
 # anything besides experimentation. Definitely **do not** publish a crate that
 # depends on this feature.
 unstable = []
-
-[workspace]
-members = [
-    "tests/h2-fuzz",
-    "tests/h2-tests",
-    "tests/h2-support",
-    "util/genfixture",
-    "util/genhuff",
-]
 
 [dependencies]
 futures-core = { version = "0.3", default-features = false }

@@ -10,7 +10,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-h2 = { version = "0.3.19", features = ["stream"] }
+h2-intercept = { features = ["stream"], path = "../../h2-intercept" }
 hex = "0.4.3"
 hexdump = { version = "0.1.0", path = "../hexdump" }
 http = "0.2.9"
