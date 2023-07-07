@@ -1,0 +1,96 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  style:
+    name: Check Style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - run: cargo fmt --all --check
+
+  test:
+    name: Test
+    needs: [style]
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Dwarnings
+    strategy:
+      matrix:
+        rust:
+          - nightly
+          - beta
+          - stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Rust (${{ matrix.rust }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Install libssl-dev
+        run: sudo apt-get update && sudo apt-get install libssl-dev
+      - name: Build without unstable flag
+        run: cargo build
+
+      - name: Check with unstable flag
+        run: cargo check --features unstable
+
+      - name: Run lib tests and doc tests
+        run: cargo test
+
+      - name: Run integration tests
+        run: cargo test -p h2-tests
+
+      - name: Run h2spec
+        run: ./ci/h2spec.sh
+        if: matrix.rust == 'stable'
+
+      - name: Check minimal versions
+        run: cargo clean; cargo update -Zminimal-versions; cargo check
+        if: matrix.rust == 'nightly'
+
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features
+
+  msrv:
+    name: Check MSRV
+    needs: [style]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get MSRV from package metadata
+        id: metadata
+        run: |
+          cargo metadata --no-deps --format-version 1 |
+              jq -r '"msrv=" + (.packages[] | select(.name == "h2")).rust_version' >> $GITHUB_OUTPUT
+
+      - name: Install Rust (${{ steps.metadata.outputs.msrv }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.metadata.outputs.msrv }}
+
+      - run: cargo check
