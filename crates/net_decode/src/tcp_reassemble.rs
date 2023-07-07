@@ -212,7 +212,7 @@ impl TCPStateMachine {
 
                 if flag_ack {
                     if tcp.ack_no <= self.iss || tcp.ack_no > self.send_next {
-                        tracing::debug!("3.10.7.3 dropped packet");
+                        tracing::warn!("3.10.7.3 dropped packet");
                         return;
                     }
                 }
@@ -274,7 +274,7 @@ impl TCPStateMachine {
                 }
             }
             _ => {
-                tracing::debug!("FIXME: unimplemented tcp state {self:?}");
+                tracing::warn!("FIXME: unimplemented tcp state {self:?}");
             }
         };
     }
@@ -337,7 +337,7 @@ impl TcpFollower {
             Entry::Vacant(_) if received_by_client => unreachable!(),
             // Flow that we are probably missing the front of
             Entry::Vacant(_) if !received_by_client && (!tcp.flag_syn || tcp.flag_ack) => {
-                tracing::debug!("drop unk flow {target:?}");
+                tracing::warn!("drop unk flow {target:?}");
                 return Ok(());
             }
             Entry::Vacant(v) => {
@@ -373,7 +373,7 @@ impl TcpFollower {
             "server"
         };
 
-        tracing::debug!(
+        tracing::trace!(
             "tcp {side_label} {:?} {:?} {:?}",
             rx_side.state_machine.state,
             target,
@@ -402,7 +402,7 @@ impl TcpFollower {
                             Wrapping(header.sequence_no) + Wrapping(bs.len().try_into().unwrap());
 
                         // Now have in-order segments, so we can do things with them
-                        tracing::debug!("data: {}", hexdump::HexDumper::new(&bs));
+                        tracing::trace!("data: {}", hexdump::HexDumper::new(&bs));
                         // FIXME: edge cases:
                         // * Receive a seqnum which is LESS THAN the one
                         // expected: perhaps for some reason we got part of a
@@ -438,11 +438,11 @@ impl TcpFollower {
                 if let Ok((remain, tcp)) = pktparse::tcp::parse_tcp_header(data) {
                     let ip_target = IPTarget::from_headers(&ip_header, &tcp);
                     self.record_flow(timing, &ip_target, &tcp, remain, recv)?;
-                    tracing::debug!("\n{}", hexdump::HexDumper::new(remain));
+                    tracing::trace!("\n{}", hexdump::HexDumper::new(remain));
                 }
             }
             p => {
-                tracing::debug!("unk protocol {p:?}");
+                tracing::warn!("unk protocol {p:?}");
             }
         }
         Ok(())

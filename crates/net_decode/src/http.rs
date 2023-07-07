@@ -14,6 +14,7 @@ use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 use crate::{
     chomp::IPTarget,
     listener::{Listener, SideData, TimingInfo},
+    tls,
 };
 
 pub type RequestId = u64;
@@ -74,6 +75,11 @@ struct OnwardData<'a> {
     target: IPTarget,
     new_request_id: &'a mut dyn FnMut() -> RequestId,
     next: &'a mut dyn Listener<HTTPStreamEvent>,
+}
+
+#[derive(Default)]
+pub struct HTTP2Flow {
+    request_id: RequestId,
 }
 
 #[derive(Default)]
@@ -385,6 +391,16 @@ impl HTTP1Flow {
 
 enum HTTPFlow {
     HTTP1Flow(HTTP1Flow),
+    HTTP2Flow(HTTP2Flow),
+}
+
+impl HTTPFlow {
+    fn request_id(&self) -> RequestId {
+        match self {
+            HTTPFlow::HTTP1Flow(f) => f.request_id,
+            HTTPFlow::HTTP2Flow(f) => f.request_id,
+        }
+    }
 }
 
 pub struct HTTPRequestTracker {
@@ -427,10 +443,16 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
         //     "data to_client={to_client}:\n{}",
         //     hexdump::HexDumper::new(&data)
         // );
+        let s = tracing::span!(
+            tracing::Level::DEBUG,
+            "http request",
+            request_id = entry.request_id()
+        );
+        let _g = s.enter();
 
         match entry {
             HTTPFlow::HTTP1Flow(entry) => {
-                tracing::debug!(?entry.client_state, ?entry.server_state);
+                tracing::debug!(?entry.client_state, ?entry.server_state, "h1 state");
                 entry.handle_request(
                     &timing,
                     target,
@@ -440,10 +462,35 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
                     &mut data,
                 )
             }
+
+            HTTPFlow::HTTP2Flow(_entry) => {
+                tracing::debug!("h2 state");
+            }
         }
     }
 
     fn on_side_data(&mut self, data: Box<dyn SideData>) {
+        let mut new_request_id = || {
+            let i = self.request_id;
+            self.request_id += 1;
+            i
+        };
+
+        if let Some(alpn) = (&*data)
+            .as_any()
+            .downcast_ref::<tls::side_data::ALPNCompleted>()
+        {
+            tracing::debug!(?alpn, "ALPN");
+
+            if alpn.protocols.iter().any(|e| e.0 == b"h2") {
+                let _ = self.flows.entry(alpn.target).or_insert_with(|| {
+                    HTTPFlow::HTTP2Flow(HTTP2Flow {
+                        request_id: new_request_id(),
+                        ..Default::default()
+                    })
+                });
+            }
+        }
         self.next.on_side_data(data);
     }
 }
@@ -483,6 +530,14 @@ mod test {
         check(
             expect_test::expect_file!("./test_output/http/h1_conn_reuse"),
             &http_test(H1_CONN_REUSE),
+        )
+    }
+
+    #[test]
+    fn test_h2() {
+        check(
+            expect_test::expect_file!("./test_output/http/h2"),
+            &http_test(H2),
         )
     }
 }
