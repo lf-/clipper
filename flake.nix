@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
