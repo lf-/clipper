@@ -625,6 +625,10 @@ impl HTTP1Flow {
 
                 let mut parts = new_req_parts();
                 parts.method = http::Method::from_bytes(request.method.unwrap().as_bytes())?;
+                // FIXME: this URI handling sucks and we could do better: we
+                // can collect SNI and Host header information and synthesize
+                // the URI from at least those. h2 does it way better due to
+                // the pseudos.
                 parts.uri = request.path.unwrap().parse::<http::Uri>()?;
                 parts.version = decode_http1_version(request.version.unwrap())?;
                 parts.headers = to_header_map(&headers);
