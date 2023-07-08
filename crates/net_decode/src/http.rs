@@ -8,6 +8,7 @@
 //! - Gzip
 
 use std::{
+    cell::RefCell,
     collections::{HashMap, VecDeque},
     fmt,
     io::{self, Write},
@@ -17,6 +18,7 @@ use std::{
 
 use bytes::{Buf, BufMut};
 use futures::{task::noop_waker, FutureExt};
+use h2_intercept::frame::{Frame as HTTP2Frame, StreamId};
 use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
@@ -125,15 +127,170 @@ impl tokio::io::AsyncRead for FakeAsyncBufs {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum SideState {
+    /// Expect headers.
+    Headers,
+    /// Expect continuation of headers.
+    HeadersContinued,
+    /// Expect data.
+    Data,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum StreamState {
+    Open,
+    HalfClosedServer,
+    HalfClosedClient,
+    Closed,
+    Error,
+}
+
+#[derive(Debug)]
+struct Stream {
+    state: StreamState,
+    server: SideState,
+    client: SideState,
+    request_id: RequestId,
+}
+
+impl Stream {
+    fn new(request_id: RequestId) -> Self {
+        Self {
+            state: StreamState::Open,
+            server: SideState::Headers,
+            client: SideState::Headers,
+            request_id,
+        }
+    }
+}
+
+impl Stream {
+    fn drive_state(
+        &mut self,
+        to_client: bool,
+        frame: HTTP2Frame,
+        on_data: &mut dyn FnMut(&mut Self, h2_intercept::frame::Data) -> Result<(), HTTPParseError>,
+        on_headers: &mut dyn FnMut(
+            &mut Self,
+            h2_intercept::frame::Headers,
+        ) -> Result<(), HTTPParseError>,
+    ) -> Result<(), HTTPParseError> {
+        let mut open_or_half_closed = |this: &mut Self,
+                                       frame: HTTP2Frame,
+                                       nexts: (StreamState, StreamState)|
+         -> Result<(), HTTPParseError> {
+            let side = if to_client {
+                &mut this.client
+            } else {
+                &mut this.server
+            };
+
+            let our_next = if to_client { nexts.0 } else { nexts.1 };
+            match frame {
+                HTTP2Frame::Headers(hs) => {
+                    assert!(!(hs.is_end_stream() && !hs.is_end_headers()), "END_STREAM + no END_HEADERS seems to never happen in rust h2 but would break our state handling");
+                    *side = if hs.is_end_headers() {
+                        SideState::Data
+                    } else {
+                        SideState::HeadersContinued
+                    };
+
+                    if hs.is_end_stream() {
+                        this.state = our_next;
+                    }
+
+                    tracing::trace!(?this.state, ?hs, "got headers");
+                    on_headers(this, hs)?;
+                }
+                HTTP2Frame::Data(d) => {
+                    if d.is_end_stream() {
+                        this.state = our_next;
+                    }
+
+                    tracing::trace!(?this.state, ?d, "got data");
+                    on_data(this, d)?;
+                }
+                _ => {
+                    this.state = StreamState::Error;
+                }
+            }
+            Ok(())
+        };
+
+        match self.state {
+            StreamState::Open => (open_or_half_closed)(
+                self,
+                frame,
+                (StreamState::HalfClosedServer, StreamState::HalfClosedClient),
+            )?,
+            StreamState::HalfClosedClient if to_client => {
+                (open_or_half_closed)(self, frame, (StreamState::Closed, StreamState::Closed))?
+            }
+            StreamState::HalfClosedClient => {
+                // FIXME: this doesn't really account for the other side still
+                // having some stuff in the queue. It's not really clear how to
+                // *actually* close here.
+                match frame {
+                    HTTP2Frame::Reset(_) => {
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+
+                tracing::warn!(?frame, "client sent data on client-half-closed stream");
+                self.state = StreamState::Error;
+            }
+            StreamState::HalfClosedServer if !to_client => {
+                (open_or_half_closed)(self, frame, (StreamState::Closed, StreamState::Closed))?;
+            }
+            StreamState::HalfClosedServer => {
+                match frame {
+                    HTTP2Frame::Reset(_) => {
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                tracing::warn!(?frame, "server sent data on server-half-closed stream");
+                self.state = StreamState::Error;
+            }
+            StreamState::Closed => {}
+            StreamState::Error => {
+                // Ignore further frames once we are in error state
+            }
+        }
+        Ok(())
+    }
+}
+
+struct HTTP2Side {
+    codec: h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>,
+}
+
+impl Default for HTTP2Side {
+    fn default() -> Self {
+        Self {
+            codec: h2_intercept::Codec::new(FakeAsyncBufs::default()),
+        }
+    }
+}
+
+impl From<h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>> for HTTP2Side {
+    fn from(codec: h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>) -> Self {
+        Self { codec }
+    }
+}
+
 enum HTTP2Server {
     Handshake(h2_intercept::server::ReadPreface<FakeAsyncBufs, bytes::Bytes>),
-    Serve(h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>),
+    Serve(HTTP2Side),
     Error,
 }
 
 pub struct HTTP2Flow {
     request_id: RequestId,
-    client_codec: h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>,
+    streams: HashMap<StreamId, Stream>,
+    client: HTTP2Side,
     server: HTTP2Server,
 }
 
@@ -141,7 +298,8 @@ impl Default for HTTP2Flow {
     fn default() -> Self {
         Self {
             request_id: 0,
-            client_codec: h2_intercept::Codec::new(FakeAsyncBufs::default()),
+            streams: HashMap::default(),
+            client: HTTP2Side::default(),
             server: HTTP2Server::Handshake(h2_intercept::server::ReadPreface::new(
                 h2_intercept::Codec::new(FakeAsyncBufs::default()),
             )),
@@ -149,8 +307,123 @@ impl Default for HTTP2Flow {
     }
 }
 
+fn stream_id(f: &HTTP2Frame) -> Option<StreamId> {
+    match f {
+        HTTP2Frame::Data(d) => Some(d.stream_id()),
+        HTTP2Frame::Headers(hs) => Some(hs.stream_id()),
+        HTTP2Frame::Priority(_) => None,
+        HTTP2Frame::PushPromise(pp) => Some(pp.stream_id()),
+        HTTP2Frame::Settings(_) => None,
+        HTTP2Frame::Ping(_) => None,
+        HTTP2Frame::GoAway(_) => None,
+        HTTP2Frame::WindowUpdate(_) => None,
+        HTTP2Frame::Reset(r) => Some(r.stream_id()),
+    }
+}
+
+type Streams = HashMap<StreamId, Stream>;
+
 impl HTTP2Flow {
-    fn feed_codec(data: &[u8], codec: &mut h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>) {
+    fn on_h2_frame(
+        streams: &mut Streams,
+        frame: HTTP2Frame,
+        to_client: bool,
+        onward_data: &mut OnwardData<'_>,
+    ) -> Result<(), HTTPParseError> {
+        tracing::trace!(?frame, "h2 frame");
+        if let Some(sid) = stream_id(&frame) {
+            if sid == StreamId::from(0) {
+                return Ok(());
+            }
+
+            let stream = streams
+                .entry(sid)
+                .or_insert_with(|| Stream::new((onward_data.new_request_id)()));
+            tracing::trace!(?stream, ?sid, "stream state");
+            let onward_data = RefCell::new(onward_data);
+            stream.drive_state(
+                to_client,
+                frame,
+                &mut |stream, data| {
+                    // This feels *really* dirty and
+                    // insufficiently abstracted.
+                    let ev = if to_client {
+                        HTTPStreamEvent::RespBodyChunk(stream.request_id, data.payload().to_vec())
+                    } else {
+                        HTTPStreamEvent::ReqBodyChunk(stream.request_id, data.payload().to_vec())
+                    };
+
+                    let onward_data = &mut *onward_data.borrow_mut();
+                    onward_data.next.on_data(
+                        onward_data.timing.clone(),
+                        onward_data.target,
+                        to_client,
+                        ev,
+                    );
+
+                    if to_client && data.is_end_stream() {
+                        onward_data.next.on_data(
+                            onward_data.timing.clone(),
+                            onward_data.target,
+                            to_client,
+                            // FIXME: the length reported here is meaningless
+                            // but I don't know if we can ever get useful data
+                            // for it
+                            HTTPStreamEvent::ResponseFinished(stream.request_id, 0),
+                        )
+                    }
+                    Ok(())
+                },
+                &mut |stream, headers| {
+                    let ev = if to_client {
+                        let mut parts = new_resp_parts();
+                        let (pseudo, hs) = headers.into_parts();
+                        parts.status = pseudo.status.expect("status missing?");
+                        parts.version = http::Version::HTTP_2;
+                        parts.headers = hs;
+                        HTTPStreamEvent::NewResponse(stream.request_id, parts)
+                    } else {
+                        let mut parts = new_req_parts();
+                        let (pseudo, hs) = headers.into_parts();
+                        parts.version = http::Version::HTTP_2;
+                        parts.headers = hs;
+                        parts.method = pseudo.method.expect("method missing?");
+                        let mut uri = http::uri::Parts::default();
+                        uri.scheme = Some(http::uri::Scheme::try_from(
+                            pseudo.scheme.expect("missing scheme").as_bytes(),
+                        )?);
+                        uri.authority = Some(http::uri::Authority::try_from(
+                            pseudo.authority.expect("missing authority").as_bytes(),
+                        )?);
+                        uri.path_and_query = Some(http::uri::PathAndQuery::try_from(
+                            pseudo.path.expect("missing path").as_bytes(),
+                        )?);
+                        parts.uri = http::Uri::from_parts(uri)?;
+
+                        HTTPStreamEvent::NewRequest(stream.request_id, parts)
+                    };
+
+                    let onward_data = &mut *onward_data.borrow_mut();
+                    onward_data.next.on_data(
+                        onward_data.timing.clone(),
+                        onward_data.target,
+                        to_client,
+                        ev,
+                    );
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    fn feed_codec(
+        data: &[u8],
+        to_client: bool,
+        codec: &mut h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>,
+        streams: &mut Streams,
+        mut onward_data: OnwardData<'_>,
+    ) -> Result<(), HTTPParseError> {
         codec.get_mut().append(&data);
         let fake_waker = noop_waker();
         let mut fake_ctx = Context::from_waker(&fake_waker);
@@ -158,7 +431,10 @@ impl HTTP2Flow {
             match futures::Stream::poll_next(Pin::new(codec), &mut fake_ctx) {
                 Poll::Ready(Some(f)) => match f {
                     Ok(f) => {
-                        tracing::trace!(?f, "h2 frame");
+                        // FIXME: this seems like bad error handling: the error
+                        // should probably be caught here and not further
+                        // propagated
+                        Self::on_h2_frame(streams, f, to_client, &mut onward_data)?;
                     }
                     Err(err) => {
                         tracing::warn!(%err, "h2 decode error");
@@ -169,23 +445,27 @@ impl HTTP2Flow {
                     break;
                 }
                 Poll::Pending => {
-                    unreachable!("No actual async being used here, should be impossible")
+                    unreachable!("no async here")
                 }
             }
         }
+        Ok(())
     }
 
     fn handle_request(
         &mut self,
-        timing: &TimingInfo,
-        target: IPTarget,
         to_client: bool,
-        next: &mut dyn Listener<HTTPStreamEvent>,
-        new_request_id: &mut impl FnMut() -> RequestId,
         data: &mut Vec<u8>,
-    ) {
+        onward_data: OnwardData<'_>,
+    ) -> Result<(), HTTPParseError> {
         if to_client {
-            Self::feed_codec(data, &mut self.client_codec);
+            Self::feed_codec(
+                data,
+                to_client,
+                &mut self.client.codec,
+                &mut self.streams,
+                onward_data,
+            )
         } else {
             match self.server {
                 HTTP2Server::Handshake(ref mut hs) => {
@@ -196,18 +476,26 @@ impl HTTP2Flow {
                     let mut fake_ctx = Context::from_waker(&fake_waker);
                     match hs.poll_unpin(&mut fake_ctx) {
                         Poll::Ready(Ok(v)) => {
-                            self.server = HTTP2Server::Serve(v);
+                            self.server = HTTP2Server::Serve(v.into());
                         }
                         Poll::Ready(Err(e)) => {
                             tracing::warn!(%e, "error in h2 handshake");
                             self.server = HTTP2Server::Error;
                         }
-                        Poll::Pending => unreachable!("no async is happening here so impossible"),
+                        Poll::Pending => unreachable!("no async here"),
                     }
+                    Ok(())
                 }
-                HTTP2Server::Serve(ref mut codec) => Self::feed_codec(data, codec),
+                HTTP2Server::Serve(ref mut codec) => Self::feed_codec(
+                    data,
+                    to_client,
+                    &mut codec.codec,
+                    &mut self.streams,
+                    onward_data,
+                ),
                 HTTP2Server::Error => {
                     // Already in error state, just eat packets
+                    Ok(())
                 }
             }
         }
@@ -265,6 +553,8 @@ enum HTTPParseError {
     BadVersion(u8),
     #[error("bad uri: {0}")]
     BadUri(#[from] http::uri::InvalidUri),
+    #[error("invalid uri parts: {0}")]
+    InvalidUriParts(#[from] http::uri::InvalidUriParts),
     #[error("bad method: {0}")]
     InvalidMethod(#[from] http::method::InvalidMethod),
     #[error("invalid status code: {0}")]
@@ -599,16 +889,20 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
             }
 
             HTTPFlow::HTTP2Flow(entry) => {
-                s.record("version", "h2");
-                tracing::debug!("h2 state");
-                entry.handle_request(
-                    &timing,
+                let onward = OnwardData {
+                    timing: timing.clone(),
                     target,
-                    to_client,
-                    &mut *self.next,
-                    &mut new_request_id,
-                    &mut data,
-                )
+                    new_request_id: &mut new_request_id,
+                    next: &mut *self.next,
+                };
+
+                s.record("version", "h2");
+                match entry.handle_request(to_client, &mut data, onward) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        tracing::warn!("error in h2 handling: {e}");
+                    }
+                }
             }
         }
     }
@@ -682,6 +976,16 @@ mod test {
         check(
             expect_test::expect_file!("./test_output/http/h2"),
             &http_test(H2),
+        )
+    }
+
+    #[test]
+    fn test_h2_header_continuation() {
+        // FIXME: there is another bug revealed here: we are not doing gzip
+        // compression properly.
+        check(
+            expect_test::expect_file!("./test_output/http/h2_header_continuation"),
+            &http_test(H2_BIG_HEADERS),
         )
     }
 }
