@@ -315,7 +315,7 @@ struct Flush<T, B> {
 }
 
 /// Read the client connection preface
-struct ReadPreface<T, B> {
+pub struct ReadPreface<T, B> {
     codec: Option<Codec<T, B>>,
     pos: usize,
 }
@@ -1263,14 +1263,14 @@ where
 }
 
 impl<T, B: Buf> ReadPreface<T, B> {
-    fn new(codec: Codec<T, B>) -> Self {
+    pub fn new(codec: Codec<T, B>) -> Self {
         ReadPreface {
             codec: Some(codec),
             pos: 0,
         }
     }
 
-    fn inner_mut(&mut self) -> &mut T {
+    pub fn inner_mut(&mut self) -> &mut T {
         self.codec.as_mut().unwrap().get_mut()
     }
 }

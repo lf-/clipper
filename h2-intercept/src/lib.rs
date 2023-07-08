@@ -79,12 +79,7 @@
 //! [`client::handshake`]: client/fn.handshake.html
 
 #![doc(html_root_url = "https://docs.rs/h2/0.3.20")]
-#![deny(
-    missing_debug_implementations,
-    missing_docs,
-    clippy::missing_safety_doc,
-    clippy::undocumented_unsafe_blocks
-)]
+#![deny(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 #![allow(clippy::type_complexity, clippy::manual_range_contains)]
 #![cfg_attr(test, deny(warnings))]
 

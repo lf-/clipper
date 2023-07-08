@@ -7,8 +7,16 @@
 //! FIXME:
 //! - Gzip
 
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    io::{self, Write},
+    pin::Pin,
+    task::{Context, Poll},
+};
 
+use bytes::{Buf, BufMut};
+use futures::{task::noop_waker, FutureExt};
 use http::{header::CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
@@ -78,8 +86,132 @@ struct OnwardData<'a> {
 }
 
 #[derive(Default)]
+struct FakeAsyncBufs {
+    read: VecDeque<u8>,
+}
+
+impl FakeAsyncBufs {
+    fn append(&mut self, buf: &[u8]) {
+        self.read.write_all(buf).unwrap();
+    }
+}
+
+impl tokio::io::AsyncWrite for FakeAsyncBufs {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        Poll::Ready(Err(io::Error::from(io::ErrorKind::Unsupported)))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Err(io::Error::from(io::ErrorKind::Unsupported)))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Err(io::Error::from(io::ErrorKind::Unsupported)))
+    }
+}
+
+impl tokio::io::AsyncRead for FakeAsyncBufs {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        buf.put((&mut self.get_mut().read).take(buf.remaining()));
+        Poll::Ready(Ok(()))
+    }
+}
+
+enum HTTP2Server {
+    Handshake(h2_intercept::server::ReadPreface<FakeAsyncBufs, bytes::Bytes>),
+    Serve(h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>),
+    Error,
+}
+
 pub struct HTTP2Flow {
     request_id: RequestId,
+    client_codec: h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>,
+    server: HTTP2Server,
+}
+
+impl Default for HTTP2Flow {
+    fn default() -> Self {
+        Self {
+            request_id: 0,
+            client_codec: h2_intercept::Codec::new(FakeAsyncBufs::default()),
+            server: HTTP2Server::Handshake(h2_intercept::server::ReadPreface::new(
+                h2_intercept::Codec::new(FakeAsyncBufs::default()),
+            )),
+        }
+    }
+}
+
+impl HTTP2Flow {
+    fn feed_codec(data: &[u8], codec: &mut h2_intercept::Codec<FakeAsyncBufs, bytes::Bytes>) {
+        codec.get_mut().append(&data);
+        let fake_waker = noop_waker();
+        let mut fake_ctx = Context::from_waker(&fake_waker);
+        loop {
+            match futures::Stream::poll_next(Pin::new(codec), &mut fake_ctx) {
+                Poll::Ready(Some(f)) => match f {
+                    Ok(f) => {
+                        tracing::trace!(?f, "h2 frame");
+                    }
+                    Err(err) => {
+                        tracing::warn!(%err, "h2 decode error");
+                    }
+                },
+                Poll::Ready(None) => {
+                    // Need to wait for more data
+                    break;
+                }
+                Poll::Pending => {
+                    unreachable!("No actual async being used here, should be impossible")
+                }
+            }
+        }
+    }
+
+    fn handle_request(
+        &mut self,
+        timing: &TimingInfo,
+        target: IPTarget,
+        to_client: bool,
+        next: &mut dyn Listener<HTTPStreamEvent>,
+        new_request_id: &mut impl FnMut() -> RequestId,
+        data: &mut Vec<u8>,
+    ) {
+        if to_client {
+            Self::feed_codec(data, &mut self.client_codec);
+        } else {
+            match self.server {
+                HTTP2Server::Handshake(ref mut hs) => {
+                    // FIXME: how do we ensure that we get all the data
+                    // required to start the handshake here?
+                    hs.inner_mut().append(data);
+                    let fake_waker = noop_waker();
+                    let mut fake_ctx = Context::from_waker(&fake_waker);
+                    match hs.poll_unpin(&mut fake_ctx) {
+                        Poll::Ready(Ok(v)) => {
+                            self.server = HTTP2Server::Serve(v);
+                        }
+                        Poll::Ready(Err(e)) => {
+                            tracing::warn!(%e, "error in h2 handshake");
+                            self.server = HTTP2Server::Error;
+                        }
+                        Poll::Pending => unreachable!("no async is happening here so impossible"),
+                    }
+                }
+                HTTP2Server::Serve(ref mut codec) => Self::feed_codec(data, codec),
+                HTTP2Server::Error => {
+                    // Already in error state, just eat packets
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -445,13 +577,16 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
         // );
         let s = tracing::span!(
             tracing::Level::DEBUG,
-            "http request",
-            request_id = entry.request_id()
-        );
-        let _g = s.enter();
+            "http",
+            version = tracing::field::Empty,
+            request_id = entry.request_id(),
+            ?to_client,
+        )
+        .entered();
 
         match entry {
             HTTPFlow::HTTP1Flow(entry) => {
+                s.record("version", "h1");
                 tracing::debug!(?entry.client_state, ?entry.server_state, "h1 state");
                 entry.handle_request(
                     &timing,
@@ -463,8 +598,17 @@ impl Listener<Vec<u8>> for HTTPRequestTracker {
                 )
             }
 
-            HTTPFlow::HTTP2Flow(_entry) => {
+            HTTPFlow::HTTP2Flow(entry) => {
+                s.record("version", "h2");
                 tracing::debug!("h2 state");
+                entry.handle_request(
+                    &timing,
+                    target,
+                    to_client,
+                    &mut *self.next,
+                    &mut new_request_id,
+                    &mut data,
+                )
             }
         }
     }
