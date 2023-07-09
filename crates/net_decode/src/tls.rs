@@ -812,4 +812,12 @@ mod test {
             &inorder_test(H2),
         );
     }
+
+    #[test]
+    fn test_tls13_session_resumption() {
+        check(
+            expect_test::expect_file!("./test_output/tls/tls13_session_resumption"),
+            &inorder_test(TLS13_SESSION_RESUMPTION),
+        );
+    }
 }

@@ -6,6 +6,7 @@
 //! protocol functionality before the rest of the system is built.
 use clap::Parser;
 use devtools::do_devtools_server_inner;
+use tracing::metadata::LevelFilter;
 
 use std::{
     fmt::Debug,
@@ -86,7 +87,11 @@ fn do_devtools_server(file: PathBuf) -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::Layer::new().without_time())
-        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .init();
 
     let args = Command::parse();
