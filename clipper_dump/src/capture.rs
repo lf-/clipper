@@ -132,7 +132,7 @@ impl CaptureToPcap {
         let packets_writer = tokio::io::BufWriter::new(packets_file);
 
         let mut writer = AsyncWriteHack::default();
-        let pcap_writer = PcapWriter::new(&mut writer)?;
+        let pcap_writer = PcapWriter::new(crate::APP_IDENTIFICATION, &mut writer)?;
         writer.flush_downstream(&mut file).await?;
 
         Ok(Self {

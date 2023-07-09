@@ -58,17 +58,21 @@ impl AsyncWriteHack {
 }
 
 impl PcapWriter {
-    pub fn new(writer: &mut impl io::Write) -> Result<Self, io::Error> {
+    pub fn new(app_name: &str, writer: &mut impl io::Write) -> Result<Self, io::Error> {
         let mut w = PcapWriter {
             if_index_map: Default::default(),
             pcap_if_index: 0,
         };
 
-        w.write_section_header(writer)?;
+        w.write_section_header(app_name, writer)?;
         Ok(w)
     }
 
-    fn write_section_header(&mut self, writer: &mut impl io::Write) -> Result<(), io::Error> {
+    fn write_section_header(
+        &mut self,
+        app_name: &str,
+        writer: &mut impl io::Write,
+    ) -> Result<(), io::Error> {
         let mut shb = SectionHeaderBlock {
             block_type: 0,
             block_len1: 0,
@@ -78,11 +82,18 @@ impl PcapWriter {
             section_len: -1i64,
             // for "lol" reasons the lack of endofopt in this block is not
             // fixed up.
-            options: vec![PcapNGOption {
-                code: OptionCode::EndOfOpt,
-                len: 0,
-                value: &[],
-            }],
+            options: vec![
+                PcapNGOption {
+                    code: OptionCode::ShbUserAppl,
+                    len: app_name.len() as u16,
+                    value: &app_name.as_bytes()[..app_name.len().min(u16::MAX as usize)],
+                },
+                PcapNGOption {
+                    code: OptionCode::EndOfOpt,
+                    len: 0,
+                    value: &[],
+                },
+            ],
             block_len2: 0,
         };
 

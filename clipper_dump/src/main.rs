@@ -28,6 +28,8 @@ use tracing_subscriber::prelude::*;
 mod capture;
 mod devtools;
 
+pub const APP_IDENTIFICATION: &'static str = concat!("clipper ", env!("CARGO_PKG_VERSION"));
+
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(clap::Parser, Debug)]
@@ -100,7 +102,14 @@ fn main() -> Result<(), Error> {
         Command::DumpPcap { file } => do_dump_pcap(file)?,
         Command::DevtoolsServer { file } => do_devtools_server(file)?,
         #[cfg(target_os = "linux")]
-        Command::Capture { args, output_file } => capture::do_capture_to_pcap(output_file, args)?,
+        Command::Capture { args, output_file } => capture::do_capture_to_pcap(
+            output_file,
+            if args.is_empty() {
+                vec![std::env::var("SHELL").unwrap_or("sh".into())]
+            } else {
+                args
+            },
+        )?,
         #[cfg(target_os = "linux")]
         Command::CaptureDevtools { args } => capture::do_capture_to_devtools(args)?,
     }
