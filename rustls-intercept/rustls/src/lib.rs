@@ -130,7 +130,7 @@
 //! know what to expect to find in the server's certificate.
 //!
 //! ```rust
-//! # use rustls;
+//! # use rustls_intercept;
 //! # use webpki;
 //! # use std::sync::Arc;
 //! # let mut root_store = rustls_intercept::RootCertStore::empty();

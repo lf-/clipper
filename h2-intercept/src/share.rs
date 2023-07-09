@@ -235,7 +235,7 @@ impl<B: Buf> SendStream<B> {
     /// `reserve_capacity` are *not* additive. Given the following:
     ///
     /// ```rust
-    /// # use h2::*;
+    /// # use h2_intercept::*;
     /// # fn doc(mut send_stream: SendStream<&'static [u8]>) {
     /// send_stream.reserve_capacity(100);
     /// send_stream.reserve_capacity(200);
@@ -249,7 +249,7 @@ impl<B: Buf> SendStream<B> {
     /// Given the following:
     ///
     /// ```rust
-    /// # use h2::*;
+    /// # use h2_intercept::*;
     /// # fn doc(mut send_stream: SendStream<&'static [u8]>) {
     /// send_stream.reserve_capacity(100);
     /// send_stream.reserve_capacity(0);
@@ -267,7 +267,7 @@ impl<B: Buf> SendStream<B> {
     /// is sent. For example:
     ///
     /// ```rust
-    /// # use h2::*;
+    /// # use h2_intercept::*;
     /// # async fn doc(mut send_stream: SendStream<&'static [u8]>) {
     /// send_stream.reserve_capacity(100);
     ///

@@ -1,4 +1,4 @@
-use h2::client;
+use h2_intercept::client;
 use http::{HeaderMap, Request};
 
 use std::error::Error;
