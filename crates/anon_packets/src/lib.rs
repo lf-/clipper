@@ -332,10 +332,12 @@ enum DropReason {
     FailedToRemapIp(IpAddr),
     #[error("Unknown ethertype: {0}")]
     UnkEthertype(EtherType),
+    #[error("Unknown IP next header protocol: {0}")]
+    UnkNextHeader(pnet_packet::ip::IpNextHeaderProtocol),
     #[error("ICMPv6 is not yet supported")]
     Icmp6NotSupported,
-    #[error("DNS is not yet supported")]
-    DnsNotSupported,
+    #[error("Unsupported protocol used")]
+    BannedProtocol,
     #[error("UDP parse failed")]
     UdpParseFailed,
     #[error("TCP parse failed")]
@@ -347,6 +349,8 @@ enum DropReason {
     #[error("Ethernet parse failed")]
     EthernetParseFailed,
 }
+
+const BANNED_PORTS: &'static [u16] = &[53];
 
 /// Deterministic (on the same input file) anonymizer for pcapng files.
 struct Anonymizer {
@@ -387,8 +391,9 @@ impl Anonymizer {
         let udp =
             pnet_packet::udp::MutableUdpPacket::new(data).ok_or(DropReason::UdpParseFailed)?;
 
-        if udp.get_destination() == 53 {
-            Err(DropReason::DnsNotSupported)
+        if BANNED_PORTS.contains(&udp.get_destination()) || BANNED_PORTS.contains(&udp.get_source())
+        {
+            Err(DropReason::BannedProtocol)
         } else {
             Ok(())
         }
@@ -398,8 +403,9 @@ impl Anonymizer {
         let tcp =
             pnet_packet::tcp::MutableTcpPacket::new(data).ok_or(DropReason::TcpParseFailed)?;
 
-        if tcp.get_destination() == 53 {
-            Err(DropReason::DnsNotSupported)
+        if BANNED_PORTS.contains(&tcp.get_destination()) || BANNED_PORTS.contains(&tcp.get_source())
+        {
+            Err(DropReason::BannedProtocol)
         } else {
             Ok(())
         }
@@ -417,9 +423,9 @@ impl Anonymizer {
             pnet_packet::ip::IpNextHeaderProtocols::Icmpv6 => {
                 // FIXME: We don't currently deal with ICMPv6, a fact which is kind of
                 // broken
-                return Err(DropReason::Icmp6NotSupported);
+                Err(DropReason::Icmp6NotSupported)
             }
-            _ => Ok(()),
+            other => Err(DropReason::UnkNextHeader(other)),
         }
     }
 
@@ -448,6 +454,8 @@ impl Anonymizer {
 
         let src = packet.get_source();
         packet.set_source(self.remap_v6(src)?);
+
+        tracing::debug!(next_header = ?packet.get_next_header(), "v6");
 
         self.anonymize_l4(packet.get_next_header(), packet.payload_mut())
     }
@@ -539,7 +547,7 @@ pub fn process_pcap(reader: impl io::Read, mut writer: impl io::Write) -> Result
     let mut frame_num = 0u64;
 
     while let Ok((size, block)) = reader.next() {
-        let _scope = tracing::debug_span!("packet", ?frame_num);
+        let _scope = tracing::debug_span!("packet", ?frame_num).entered();
         match block {
             pcap_parser::PcapBlockOwned::Legacy(_) => unreachable!(),
             pcap_parser::PcapBlockOwned::LegacyHeader(_) => unreachable!(),
@@ -581,5 +589,12 @@ mod test {
         let test = 0x112233445566778899aabbccddeeffu128;
 
         assert_eq!(ipv6addr_from_u128(test), Ipv6Addr::from(test));
+    }
+
+    #[test]
+    fn test_v6_loopback() {
+        let mut remap = IPScopeRemap::new(1337);
+        let remapped = remap.remap(IpAddr::V6(Ipv6Addr::LOCALHOST)).unwrap();
+        assert_eq!(remapped, IpAddr::V6(Ipv6Addr::LOCALHOST));
     }
 }
