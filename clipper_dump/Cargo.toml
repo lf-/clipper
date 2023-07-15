@@ -10,6 +10,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anon_packets = { version = "0.1.0", path = "../crates/anon_packets" }
 async-stream = "0.3.5"
 async-trait = "0.1.68"
 base64 = "0.21.2"

@@ -38,6 +38,15 @@ enum Command {
     DumpPcap { file: PathBuf },
     /// Starts a devtools server on a pcapng file.
     DevtoolsServer { file: PathBuf },
+    /// Anonymizes the addresses in a pcapng file.
+    Anonymize {
+        /// File to read from
+        #[clap(short = 'i', long)]
+        input_file: PathBuf,
+        /// File to write to
+        #[clap(short = 'o', long)]
+        output_file: PathBuf,
+    },
     /// Invokes a program with capture. Does not require root on Linux.
     Capture {
         /// File to write a pcapng to.
@@ -86,6 +95,20 @@ fn do_devtools_server(file: PathBuf) -> Result<(), Error> {
     rt.block_on(do_devtools_server_inner(file))
 }
 
+fn do_anonymize(input_file: PathBuf, output_file: PathBuf) -> Result<(), Error> {
+    use std::{fs, io};
+    let mut reader = io::BufReader::new(fs::OpenOptions::new().read(true).open(input_file)?);
+    let mut writer = io::BufWriter::new(
+        fs::OpenOptions::new()
+            .truncate(true)
+            .write(true)
+            .create(true)
+            .open(output_file)?,
+    );
+
+    anon_packets::process_pcap(&mut reader, &mut writer)
+}
+
 fn main() -> Result<(), Error> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::Layer::new().without_time())
@@ -101,6 +124,10 @@ fn main() -> Result<(), Error> {
     match args {
         Command::DumpPcap { file } => do_dump_pcap(file)?,
         Command::DevtoolsServer { file } => do_devtools_server(file)?,
+        Command::Anonymize {
+            input_file,
+            output_file,
+        } => do_anonymize(input_file, output_file)?,
         #[cfg(target_os = "linux")]
         Command::Capture { args, output_file } => capture::do_capture_to_pcap(
             output_file,

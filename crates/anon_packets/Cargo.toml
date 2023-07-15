@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "anon_packets"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cidr = "0.2.2"
+pcap-parser = { version = "0.14.0", features = ["serialize"] }
+pnet_base = "0.33.0"
+pnet_packet = "0.33.0"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+thiserror = "1.0.43"
+tracing = "0.1.37"
