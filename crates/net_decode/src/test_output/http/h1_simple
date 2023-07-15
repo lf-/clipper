@@ -1,0 +1,37 @@
+Side data:
+NewKeyReceived { typ: ClientHandshakeTrafficSecret, client_random: ClientRandom(37dd971034934aa6760527ef45377ef8eb8a104e4ffcd423c7e0f677f381cd19), secret: Secret(b6f31bb29c467e20cfb23e2a43fb5112b4f54482da454a3378ae45b783f7ff4938ce1f3c293228e58ecb3edc7ec5a72c) }
+
+Side data:
+NewKeyReceived { typ: ServerHandshakeTrafficSecret, client_random: ClientRandom(37dd971034934aa6760527ef45377ef8eb8a104e4ffcd423c7e0f677f381cd19), secret: Secret(6834b4927e47e97494a1d34148570efdcb0cca8bcd2b1b5d5fd1985056248f3d83c785f5837f92ce92359b1b48110690) }
+
+Side data:
+NewKeyReceived { typ: ClientTrafficSecret0, client_random: ClientRandom(37dd971034934aa6760527ef45377ef8eb8a104e4ffcd423c7e0f677f381cd19), secret: Secret(a10cd9a0559dd720a04970993c793a97f055dfc359671efd3e0fc04f20ff8a0328a61d89f1162762d4d0a141c7137192) }
+
+Side data:
+NewKeyReceived { typ: ServerTrafficSecret0, client_random: ClientRandom(37dd971034934aa6760527ef45377ef8eb8a104e4ffcd423c7e0f677f381cd19), secret: Secret(c2cb23dec467e4aed23be3969865cdd9aebbdeed7a933e8921c604264ae3bbce83a82f99cc47775d54ae09985b9b908b) }
+
+Side data:
+NewKeyReceived { typ: ExporterSecret, client_random: ClientRandom(37dd971034934aa6760527ef45377ef8eb8a104e4ffcd423c7e0f677f381cd19), secret: Secret(34dcd551cf060db961ecff33b3ef24a65b2c75a4857b09823653d5dac72de3aea8414beb23b4c74a340365514396ba9b) }
+
+Message:
+NewRequest(0, Parts { method: GET, uri: /robots.txt, version: HTTP/1.1, headers: {"host": "jade.fyi", "connection": "close", "accept-encoding": "utf-8"} })
+
+Message:
+ReqBodyChunk { id: 0, len: 0 }
+
+
+Message:
+NewResponse(0, Parts { status: 200, version: HTTP/1.1, headers: {"server": "nginx", "date": "Fri, 09 Jun 2023 06:33:30 GMT", "content-type": "text/plain; charset=utf-8", "content-length": "71", "last-modified": "Sat, 06 May 2023 05:32:54 GMT", "connection": "close", "etag": "\"6455e686-47\"", "strict-transport-security": "max-age=31536000", "permissions-policy": "interest-cohort=()", "x-frame-options": "sameorigin", "x-content-type-options": "nosniff", "content-security-policy-report-only": "default-src 'self'; style-src 'self' 'unsafe-inline'", "accept-ranges": "bytes"} })
+
+Message:
+RespBodyChunk { id: 0, len: 71 }
+0000: 5573 6572 2d61 6765 6e74 3a20 2a0a 4469   User-agent:.*.Di
+0010: 7361 6c6c 6f77 3a0a 416c 6c6f 773a 202f   sallow:.Allow:./
+0020: 0a53 6974 656d 6170 3a20 6874 7470 733a   .Sitemap:.https:
+0030: 2f2f 6a61 6465 2e66 7969 2f73 6974 656d   //jade.fyi/sitem
+0040: 6170 2e78 6d6c 0a                         ap.xml.
+
+
+Message:
+ResponseFinished { id: 0, len: 158 }
+

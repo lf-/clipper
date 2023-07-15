@@ -1,0 +1,132 @@
+Side data:
+NewKeyReceived { typ: ServerHandshakeTrafficSecret, client_random: ClientRandom(19f3991aeffebca724f521d00ccbf1379da8207b3091e20d4d5245b289e1106e), secret: Secret(a11e3c2983e4ad3f0e6ef43d5dd58e6c3feba3fdd0393b755e7d46f36d6d1f003ccb583d41b03028ba081facd9c985b9) }
+
+Side data:
+NewKeyReceived { typ: ExporterSecret, client_random: ClientRandom(19f3991aeffebca724f521d00ccbf1379da8207b3091e20d4d5245b289e1106e), secret: Secret(a7dcc65322670fd3e8435b3321540b8bcee6a669645e2fccc6a8d1e6e24a49e5e547da91d161b36b24821cd5cc7d2fcf) }
+
+Side data:
+NewKeyReceived { typ: ServerTrafficSecret0, client_random: ClientRandom(19f3991aeffebca724f521d00ccbf1379da8207b3091e20d4d5245b289e1106e), secret: Secret(bd490e2b340eab16fca81e966da363c45ffd1ff7081e267dbc69faf14c9a5030f5555ce3ce298c523ca00b6e224bf410) }
+
+Side data:
+NewKeyReceived { typ: ClientHandshakeTrafficSecret, client_random: ClientRandom(19f3991aeffebca724f521d00ccbf1379da8207b3091e20d4d5245b289e1106e), secret: Secret(809fb8ae5c6fe8dcb72f03c64f8aff22a61f9d417559bb70ce8768d7912df8372498ef3ac88f16a858ed40f1cf724c27) }
+
+Side data:
+NewKeyReceived { typ: ClientTrafficSecret0, client_random: ClientRandom(19f3991aeffebca724f521d00ccbf1379da8207b3091e20d4d5245b289e1106e), secret: Secret(fd4a161ee43b155ac261d0dc97b767c7eb312e116461d227b745a9bdf1610db214285aa4ba681347945f9be5c1c56404) }
+
+Side data:
+NewKeyReceived { typ: ServerHandshakeTrafficSecret, client_random: ClientRandom(78abca4944bb9e5a975093334a77f3fa54c2f18742503c84835571c3a919f495), secret: Secret(c1096e4804587edd1b3795462f1e21f72eaa664789e49cea33aa411036a0118117aff4ff86e5b01a30d6f9c582935ae2) }
+
+Side data:
+NewKeyReceived { typ: ExporterSecret, client_random: ClientRandom(78abca4944bb9e5a975093334a77f3fa54c2f18742503c84835571c3a919f495), secret: Secret(e929a6463a375dd88dfff4f8d9b26b42806063421927f3387d3336507d81b0dc4b539f071f8d6b4c3548425e69408e5b) }
+
+Side data:
+NewKeyReceived { typ: ServerTrafficSecret0, client_random: ClientRandom(78abca4944bb9e5a975093334a77f3fa54c2f18742503c84835571c3a919f495), secret: Secret(ddf3d530b471f12258d71cfaec5dc86bf96dfc1dfa26475209ada4235b85cceba5e6088dbeea19a83a227b3f4a7ed4b1) }
+
+Side data:
+NewKeyReceived { typ: ClientHandshakeTrafficSecret, client_random: ClientRandom(78abca4944bb9e5a975093334a77f3fa54c2f18742503c84835571c3a919f495), secret: Secret(c39c7d61abc8a11978c3f5902b1f041e9d16e15979e16bf3c14d0768a841db079b872509bb6cb95d231c6dcd97c1afa6) }
+
+Side data:
+NewKeyReceived { typ: ClientTrafficSecret0, client_random: ClientRandom(78abca4944bb9e5a975093334a77f3fa54c2f18742503c84835571c3a919f495), secret: Secret(4c5eefc55e466123a6d983e61f0d0e2c5a79999809fed3e54818bff4cee3efffa1da10f2efa2d199e38746ce83a38239) }
+
+Side data:
+ALPNCompleted { target: 10.59.1.165:41396 -> 198.51.100.3:443, protocols: [ProtocolName("http/1.1")] }
+
+Message:
+0000: 4745 5420 2f72 6f62 6f74 732e 7478 7420   GET./robots.txt.
+0010: 4854 5450 2f31 2e31 0d0a 486f 7374 3a20   HTTP/1.1..Host:.
+0020: 6a61 6465 2e66 7969 0d0a 5573 6572 2d41   jade.fyi..User-A
+0030: 6765 6e74 3a20 6375 726c 2f38 2e31 2e32   gent:.curl/8.1.2
+0040: 0d0a 4163 6365 7074 3a20 2a2f 2a0d 0a43   ..Accept:.*/*..C
+0050: 6f6e 6e65 6374 696f 6e3a 2063 6c6f 7365   onnection:.close
+0060: 0d0a 0d0a                                 ....
+
+
+Message:
+0000: 4854 5450 2f31 2e31 2032 3030 204f 4b0d   HTTP/1.1.200.OK.
+0010: 0a53 6572 7665 723a 206e 6769 6e78 0d0a   .Server:.nginx..
+0020: 4461 7465 3a20 5375 6e2c 2030 3920 4a75   Date:.Sun,.09.Ju
+0030: 6c20 3230 3233 2032 303a 3131 3a35 3720   l.2023.20:11:57.
+0040: 474d 540d 0a43 6f6e 7465 6e74 2d54 7970   GMT..Content-Typ
+0050: 653a 2074 6578 742f 706c 6169 6e3b 2063   e:.text/plain;.c
+0060: 6861 7273 6574 3d75 7466 2d38 0d0a 436f   harset=utf-8..Co
+0070: 6e74 656e 742d 4c65 6e67 7468 3a20 3731   ntent-Length:.71
+0080: 0d0a 4c61 7374 2d4d 6f64 6966 6965 643a   ..Last-Modified:
+0090: 2053 6174 2c20 3036 204d 6179 2032 3032   .Sat,.06.May.202
+00a0: 3320 3035 3a33 323a 3534 2047 4d54 0d0a   3.05:32:54.GMT..
+00b0: 436f 6e6e 6563 7469 6f6e 3a20 636c 6f73   Connection:.clos
+00c0: 650d 0a45 5461 673a 2022 3634 3535 6536   e..ETag:."6455e6
+00d0: 3836 2d34 3722 0d0a 5374 7269 6374 2d54   86-47"..Strict-T
+00e0: 7261 6e73 706f 7274 2d53 6563 7572 6974   ransport-Securit
+00f0: 793a 206d 6178 2d61 6765 3d33 3135 3336   y:.max-age=31536
+0100: 3030 300d 0a50 6572 6d69 7373 696f 6e73   000..Permissions
+0110: 2d50 6f6c 6963 793a 2069 6e74 6572 6573   -Policy:.interes
+0120: 742d 636f 686f 7274 3d28 290d 0a58 2d46   t-cohort=()..X-F
+0130: 7261 6d65 2d4f 7074 696f 6e73 3a20 7361   rame-Options:.sa
+0140: 6d65 6f72 6967 696e 0d0a 582d 436f 6e74   meorigin..X-Cont
+0150: 656e 742d 5479 7065 2d4f 7074 696f 6e73   ent-Type-Options
+0160: 3a20 6e6f 736e 6966 660d 0a43 6f6e 7465   :.nosniff..Conte
+0170: 6e74 2d53 6563 7572 6974 792d 506f 6c69   nt-Security-Poli
+0180: 6379 2d52 6570 6f72 742d 4f6e 6c79 3a20   cy-Report-Only:.
+0190: 6465 6661 756c 742d 7372 6320 2773 656c   default-src.'sel
+01a0: 6627 3b20 7374 796c 652d 7372 6320 2773   f';.style-src.'s
+01b0: 656c 6627 2027 756e 7361 6665 2d69 6e6c   elf'.'unsafe-inl
+01c0: 696e 6527 0d0a 4163 6365 7074 2d52 616e   ine'..Accept-Ran
+01d0: 6765 733a 2062 7974 6573 0d0a 0d0a 5573   ges:.bytes....Us
+01e0: 6572 2d61 6765 6e74 3a20 2a0a 4469 7361   er-agent:.*.Disa
+01f0: 6c6c 6f77 3a0a 416c 6c6f 773a 202f 0a53   llow:.Allow:./.S
+0200: 6974 656d 6170 3a20 6874 7470 733a 2f2f   itemap:.https://
+0210: 6a61 6465 2e66 7969 2f73 6974 656d 6170   jade.fyi/sitemap
+0220: 2e78 6d6c 0a                              .xml.
+
+
+Side data:
+ALPNCompleted { target: 10.59.1.165:41410 -> 198.51.100.3:443, protocols: [ProtocolName("http/1.1")] }
+
+Message:
+0000: 4745 5420 2f72 6f62 6f74 732e 7478 743f   GET./robots.txt?
+0010: 6e79 6120 4854 5450 2f31 2e31 0d0a 486f   nya.HTTP/1.1..Ho
+0020: 7374 3a20 6a61 6465 2e66 7969 0d0a 5573   st:.jade.fyi..Us
+0030: 6572 2d41 6765 6e74 3a20 6375 726c 2f38   er-Agent:.curl/8
+0040: 2e31 2e32 0d0a 4163 6365 7074 3a20 2a2f   .1.2..Accept:.*/
+0050: 2a0d 0a43 6f6e 6e65 6374 696f 6e3a 2063   *..Connection:.c
+0060: 6c6f 7365 0d0a 0d0a                       lose....
+
+
+Message:
+0000: 4854 5450 2f31 2e31 2032 3030 204f 4b0d   HTTP/1.1.200.OK.
+0010: 0a53 6572 7665 723a 206e 6769 6e78 0d0a   .Server:.nginx..
+0020: 4461 7465 3a20 5375 6e2c 2030 3920 4a75   Date:.Sun,.09.Ju
+0030: 6c20 3230 3233 2032 303a 3131 3a35 3720   l.2023.20:11:57.
+0040: 474d 540d 0a43 6f6e 7465 6e74 2d54 7970   GMT..Content-Typ
+0050: 653a 2074 6578 742f 706c 6169 6e3b 2063   e:.text/plain;.c
+0060: 6861 7273 6574 3d75 7466 2d38 0d0a 436f   harset=utf-8..Co
+0070: 6e74 656e 742d 4c65 6e67 7468 3a20 3731   ntent-Length:.71
+0080: 0d0a 4c61 7374 2d4d 6f64 6966 6965 643a   ..Last-Modified:
+0090: 2053 6174 2c20 3036 204d 6179 2032 3032   .Sat,.06.May.202
+00a0: 3320 3035 3a33 323a 3534 2047 4d54 0d0a   3.05:32:54.GMT..
+00b0: 436f 6e6e 6563 7469 6f6e 3a20 636c 6f73   Connection:.clos
+00c0: 650d 0a45 5461 673a 2022 3634 3535 6536   e..ETag:."6455e6
+00d0: 3836 2d34 3722 0d0a 5374 7269 6374 2d54   86-47"..Strict-T
+00e0: 7261 6e73 706f 7274 2d53 6563 7572 6974   ransport-Securit
+00f0: 793a 206d 6178 2d61 6765 3d33 3135 3336   y:.max-age=31536
+0100: 3030 300d 0a50 6572 6d69 7373 696f 6e73   000..Permissions
+0110: 2d50 6f6c 6963 793a 2069 6e74 6572 6573   -Policy:.interes
+0120: 742d 636f 686f 7274 3d28 290d 0a58 2d46   t-cohort=()..X-F
+0130: 7261 6d65 2d4f 7074 696f 6e73 3a20 7361   rame-Options:.sa
+0140: 6d65 6f72 6967 696e 0d0a 582d 436f 6e74   meorigin..X-Cont
+0150: 656e 742d 5479 7065 2d4f 7074 696f 6e73   ent-Type-Options
+0160: 3a20 6e6f 736e 6966 660d 0a43 6f6e 7465   :.nosniff..Conte
+0170: 6e74 2d53 6563 7572 6974 792d 506f 6c69   nt-Security-Poli
+0180: 6379 2d52 6570 6f72 742d 4f6e 6c79 3a20   cy-Report-Only:.
+0190: 6465 6661 756c 742d 7372 6320 2773 656c   default-src.'sel
+01a0: 6627 3b20 7374 796c 652d 7372 6320 2773   f';.style-src.'s
+01b0: 656c 6627 2027 756e 7361 6665 2d69 6e6c   elf'.'unsafe-inl
+01c0: 696e 6527 0d0a 4163 6365 7074 2d52 616e   ine'..Accept-Ran
+01d0: 6765 733a 2062 7974 6573 0d0a 0d0a 5573   ges:.bytes....Us
+01e0: 6572 2d61 6765 6e74 3a20 2a0a 4469 7361   er-agent:.*.Disa
+01f0: 6c6c 6f77 3a0a 416c 6c6f 773a 202f 0a53   llow:.Allow:./.S
+0200: 6974 656d 6170 3a20 6874 7470 733a 2f2f   itemap:.https://
+0210: 6a61 6465 2e66 7969 2f73 6974 656d 6170   jade.fyi/sitemap
+0220: 2e78 6d6c 0a                              .xml.
+
+

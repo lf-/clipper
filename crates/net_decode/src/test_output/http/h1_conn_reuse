@@ -1,0 +1,83 @@
+Side data:
+NewKeyReceived { typ: ServerHandshakeTrafficSecret, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(c5f24ab16801dae253af50aae719e68ecf0617a07f3c3a9711d1f39434d2c81c417aa04dbafec9aa0c514ed9c394699b) }
+
+Side data:
+NewKeyReceived { typ: ExporterSecret, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(f334ad5da729c0c8bc8e92e54351cbf74bf0e3233de3420acc4a7eabc84ef492f73b60902e3c8972e01b8c613a1850b7) }
+
+Side data:
+NewKeyReceived { typ: ServerTrafficSecret0, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(dcd5fc062ba8fc3473f11001a122e01c24f00591792de1f0316f3d75d422a6f0e29bb393e71585851302f9e1accdb4ac) }
+
+Side data:
+NewKeyReceived { typ: ClientHandshakeTrafficSecret, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(0e73c1f52f28f9391629cf87d9e15f77e9055d471528e855bb123f5bd43b0f8c082b656d08a5f3791becbe1c344d6c7b) }
+
+Side data:
+NewKeyReceived { typ: ClientTrafficSecret0, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(ed1031488e840000710364ba2134b8d3765bc84d78763c7f117fbde5a2084b7398dbfcc3a3c3c52627b2246fae116251) }
+
+Side data:
+NewKeyReceived { typ: ServerHandshakeTrafficSecret, client_random: ClientRandom(07f2f9462c46f895c2066e17924668c0ef538c6cb960d95a162c2fe80a9511c3), secret: Secret(377ac0e6fca5a7d3bc2f946f400ebc72d6a123239225bec199a6b895907c3d9e413d1e9907c30887337f3b1ca329b45a) }
+
+Side data:
+NewKeyReceived { typ: ExporterSecret, client_random: ClientRandom(07f2f9462c46f895c2066e17924668c0ef538c6cb960d95a162c2fe80a9511c3), secret: Secret(3f21594fe6034d1c284c0013666ef86f3bad3c9219f4e0bdd612062407b02dab29739efc5c4934bf96ceb28688048c79) }
+
+Side data:
+NewKeyReceived { typ: ServerTrafficSecret0, client_random: ClientRandom(07f2f9462c46f895c2066e17924668c0ef538c6cb960d95a162c2fe80a9511c3), secret: Secret(8fce184758153a82cbaff325f98cd9cced96da54521bad78815109864e4b274c4ac178e206ffa4238fabd192be3185a5) }
+
+Side data:
+NewKeyReceived { typ: ClientHandshakeTrafficSecret, client_random: ClientRandom(07f2f9462c46f895c2066e17924668c0ef538c6cb960d95a162c2fe80a9511c3), secret: Secret(2b54dcd53db40a67f55706964f67347b52b3bc0d654f5dad5d7b947087e012bce47e65782396c466adf243bdf99ed161) }
+
+Side data:
+NewKeyReceived { typ: ClientTrafficSecret0, client_random: ClientRandom(07f2f9462c46f895c2066e17924668c0ef538c6cb960d95a162c2fe80a9511c3), secret: Secret(eb2af4ba2e741c724ecf49ae267d45401cbf06ec21ca8bfe32d79cd2a7fdbd3677306cc138ce5e229f7e803cc904da1e) }
+
+Side data:
+ALPNCompleted { target: 172.28.219.167:46688 -> 198.51.100.248:443, protocols: [ProtocolName("http/1.1")] }
+
+Message:
+NewRequest(0, Parts { method: GET, uri: /robots.txt, version: HTTP/1.1, headers: {"host": "jade.fyi", "user-agent": "curl/8.1.2", "accept": "*/*"} })
+
+Message:
+ReqBodyChunk { id: 0, len: 0 }
+
+
+Message:
+NewResponse(0, Parts { status: 200, version: HTTP/1.1, headers: {"server": "nginx", "date": "Thu, 15 Jun 2023 21:48:00 GMT", "content-type": "text/plain; charset=utf-8", "content-length": "71", "last-modified": "Sat, 06 May 2023 05:32:54 GMT", "connection": "keep-alive", "etag": "\"6455e686-47\"", "strict-transport-security": "max-age=31536000", "permissions-policy": "interest-cohort=()", "x-frame-options": "sameorigin", "x-content-type-options": "nosniff", "content-security-policy-report-only": "default-src 'self'; style-src 'self' 'unsafe-inline'", "accept-ranges": "bytes"} })
+
+Message:
+RespBodyChunk { id: 0, len: 71 }
+0000: 5573 6572 2d61 6765 6e74 3a20 2a0a 4469   User-agent:.*.Di
+0010: 7361 6c6c 6f77 3a0a 416c 6c6f 773a 202f   sallow:.Allow:./
+0020: 0a53 6974 656d 6170 3a20 6874 7470 733a   .Sitemap:.https:
+0030: 2f2f 6a61 6465 2e66 7969 2f73 6974 656d   //jade.fyi/sitem
+0040: 6170 2e78 6d6c 0a                         ap.xml.
+
+
+Message:
+ResponseFinished { id: 0, len: 152 }
+
+Message:
+NewRequest(1, Parts { method: POST, uri: /robots.txt, version: HTTP/1.1, headers: {"host": "jade.fyi", "user-agent": "curl/8.1.2", "accept": "*/*", "content-length": "12", "content-type": "application/x-www-form-urlencoded"} })
+
+Message:
+ReqBodyChunk { id: 1, len: 12 }
+0000: 6e79 616e 7961 6e79 616e 7961             nyanyanyanya
+
+
+Message:
+NewResponse(1, Parts { status: 405, version: HTTP/1.1, headers: {"server": "nginx", "date": "Thu, 15 Jun 2023 21:48:00 GMT", "content-type": "text/html; charset=utf-8", "content-length": "150", "connection": "keep-alive"} })
+
+Message:
+RespBodyChunk { id: 1, len: 150 }
+0000: 3c68 746d 6c3e 0d0a 3c68 6561 643e 3c74   <html>..<head><t
+0010: 6974 6c65 3e34 3035 204e 6f74 2041 6c6c   itle>405.Not.All
+0020: 6f77 6564 3c2f 7469 746c 653e 3c2f 6865   owed</title></he
+0030: 6164 3e0d 0a3c 626f 6479 3e0d 0a3c 6365   ad>..<body>..<ce
+0040: 6e74 6572 3e3c 6831 3e34 3035 204e 6f74   nter><h1>405.Not
+0050: 2041 6c6c 6f77 6564 3c2f 6831 3e3c 2f63   .Allowed</h1></c
+0060: 656e 7465 723e 0d0a 3c68 723e 3c63 656e   enter>..<hr><cen
+0070: 7465 723e 6e67 696e 783c 2f63 656e 7465   ter>nginx</cente
+0080: 723e 0d0a 3c2f 626f 6479 3e0d 0a3c 2f68   r>..</body>..</h
+0090: 746d 6c3e 0d0a                            tml>..
+
+
+Message:
+ResponseFinished { id: 1, len: 313 }
+

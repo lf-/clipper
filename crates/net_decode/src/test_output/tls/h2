@@ -1,0 +1,102 @@
+Side data:
+NewKeyReceived { typ: ServerHandshakeTrafficSecret, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(c5f24ab16801dae253af50aae719e68ecf0617a07f3c3a9711d1f39434d2c81c417aa04dbafec9aa0c514ed9c394699b) }
+
+Side data:
+NewKeyReceived { typ: ExporterSecret, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(f334ad5da729c0c8bc8e92e54351cbf74bf0e3233de3420acc4a7eabc84ef492f73b60902e3c8972e01b8c613a1850b7) }
+
+Side data:
+NewKeyReceived { typ: ServerTrafficSecret0, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(dcd5fc062ba8fc3473f11001a122e01c24f00591792de1f0316f3d75d422a6f0e29bb393e71585851302f9e1accdb4ac) }
+
+Side data:
+NewKeyReceived { typ: ClientHandshakeTrafficSecret, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(0e73c1f52f28f9391629cf87d9e15f77e9055d471528e855bb123f5bd43b0f8c082b656d08a5f3791becbe1c344d6c7b) }
+
+Side data:
+NewKeyReceived { typ: ClientTrafficSecret0, client_random: ClientRandom(782579d895e25b8fdb7bf57341b994f1a8625e97706f9f38fd7493a5ac701e5e), secret: Secret(ed1031488e840000710364ba2134b8d3765bc84d78763c7f117fbde5a2084b7398dbfcc3a3c3c52627b2246fae116251) }
+
+Side data:
+ALPNCompleted { target: 172.28.219.167:38002 -> 198.51.100.248:443, protocols: [ProtocolName("h2")] }
+
+Message:
+0000: 5052 4920 2a20 4854 5450 2f32 2e30 0d0a   PRI.*.HTTP/2.0..
+0010: 0d0a 534d 0d0a 0d0a 0000 1204 0000 0000   ..SM............
+0020: 0000 0300 0000 6400 0400 a000 0000 0200   ......d.........
+0030: 0000 0000 0004 0800 0000 0000 3e7f 0001   ............>...
+
+
+Message:
+0000: 0000 2301 0500 0000 0182 8741 86e8 390a   ..#........A..9.
+0010: bcbe 8d04 8862 c3c6 74a1 74f9 4f7a 8825   .....b..t.t.Oz.%
+0020: b650 c3cb 8571 7f53 032a 2f2a             .P...q.S.*/*
+
+
+Message:
+0000: 0000 1204 0000 0000 0000 0300 0000 8000   ................
+0010: 0400 0100 0000 0500 ffff ff00 0004 0800   ................
+0020: 0000 0000 7fff 0000 0000 0004 0100 0000   ................
+0030: 0000 0120 0104 0000 0001 8876 84aa 6355   ...........v..cU
+0040: e761 96df 3dbf 4a05 b532 db52 8200 9950   .a..=.J..2.R...P
+0050: 41b8 d377 1b0a 98b4 6f5f 9249 7ca5 8ae8   A..w....o_.I|...
+0060: 19aa fb50 938e c415 305a 9956 7b5c 0237   ...P....0Z.V{\.7
+0070: 316c 96dc 34fd 2807 14d0 3f4a 0802 6540   1l..4.(...?J..e@
+0080: 3771 915c 6da5 3168 df00 832a 4737 8bfe   7q.\m.1h...*G7..
+0090: 5c69 b6ca e3ce 2cd3 bfcf 0091 426c 3112   \i....,.....Bl1.
+00a0: b26c 1d48 acf6 2564 1496 d864 fa8c a47e   .l.H..%d...d...~
+00b0: 561c c581 90b6 cb80 003f 008d acb6 5264   V........?....Rd
+00c0: 20c7 a90b 567a 0c4f 5f8e 3549 2d85 4256   ....Vz.O_.5I-.BV
+00d0: 21e7 3d89 83fa feff 008b f2b4 b60e 92ac   !.=.............
+00e0: 7ad2 63d4 8f87 40e9 29ec 34c6 ab00 90f2   z.c...@.).4.....
+00f0: b10f 524b 5256 4faa cab1 eb49 8f52 3f85   ..RKRVO....I.R?.
+0100: a8e8 a8d2 cb00 9921 ea49 6a4a c829 2db0   .......!.IjJ.)-.
+0110: c9f4 b567 a0c4 f4b5 85ac f625 63d5 47af   ...g.......%c.G.
+0120: a990 b28e da12 b22c 229f e905 a25f f5f6   .......,"...._..
+0130: a213 ea82 ac8b 08a7 fa41 6897 fd29 fead   .........Ah..)..
+0140: a903 94ab 1aaa 0d51 7fd7 0089 1908 5ad2   .......Q......Z.
+0150: b583 aa62 a384 8fd2 4a8f                  ...b....J.
+
+
+Message:
+0000: 0000 4700 0100 0000 0155 7365 722d 6167   ..G......User-ag
+0010: 656e 743a 202a 0a44 6973 616c 6c6f 773a   ent:.*.Disallow:
+0020: 0a41 6c6c 6f77 3a20 2f0a 5369 7465 6d61   .Allow:./.Sitema
+0030: 703a 2068 7474 7073 3a2f 2f6a 6164 652e   p:.https://jade.
+0040: 6679 692f 7369 7465 6d61 702e 786d 6c0a   fyi/sitemap.xml.
+
+
+Message:
+0000: 0000 0004 0100 0000 00                    .........
+
+
+Message:
+0000: 0000 2e01 0400 0000 0383 87c0 0488 62c3   ..............b.
+0010: c674 a174 f94f bfbe 0f0d 0231 325f 981d   .t.t.O.....12_..
+0020: 75d0 620d 263d 4c79 5bc7 8f0b 4a7b 295a   u.b.&=Ly[...J{)Z
+0030: db28 2d44 3c85 93                         .(-D<..
+
+
+Message:
+0000: 0000 0c00 0100 0000 036e 7961 6e79 616e   .........nyanyan
+0010: 7961 6e79 61                              yanya
+
+
+Message:
+0000: 0000 3c01 0400 0000 0348 0334 3035 7684   ..<......H.405v.
+0010: aa63 55e7 6196 df3d bf4a 05b5 32db 5282   .cU.a..=.J..2.R.
+0020: 0099 5041 b8d3 771b 0a98 b46f 5f92 497c   ..PA..w....o_.I|
+0030: a589 d34d 1f6a 1271 d882 a60b 532a cf7f   ...M.j.q....S*..
+0040: 5c03 3135 3000 0096 0001 0000 0003 3c68   \.150.........<h
+0050: 746d 6c3e 0d0a 3c68 6561 643e 3c74 6974   tml>..<head><tit
+0060: 6c65 3e34 3035 204e 6f74 2041 6c6c 6f77   le>405.Not.Allow
+0070: 6564 3c2f 7469 746c 653e 3c2f 6865 6164   ed</title></head
+0080: 3e0d 0a3c 626f 6479 3e0d 0a3c 6365 6e74   >..<body>..<cent
+0090: 6572 3e3c 6831 3e34 3035 204e 6f74 2041   er><h1>405.Not.A
+00a0: 6c6c 6f77 6564 3c2f 6831 3e3c 2f63 656e   llowed</h1></cen
+00b0: 7465 723e 0d0a 3c68 723e 3c63 656e 7465   ter>..<hr><cente
+00c0: 723e 6e67 696e 783c 2f63 656e 7465 723e   r>nginx</center>
+00d0: 0d0a 3c2f 626f 6479 3e0d 0a3c 2f68 746d   ..</body>..</htm
+00e0: 6c3e 0d0a                                 l>..
+
+
+Message:
+0000: 0000 0403 0000 0000 0300 0000 00          .............
+
+
