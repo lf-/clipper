@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [package]
-name = "clipper_dump"
+name = "clipper"
 version = "0.1.0"
 edition = "2021"
 
