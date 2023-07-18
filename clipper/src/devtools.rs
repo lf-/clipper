@@ -6,9 +6,10 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
+    io,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
     sync::{Arc, RwLock},
-    time::Duration,
 };
 
 use base64::Engine;
@@ -33,6 +34,8 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 use crate::{chomper, Error};
+
+pub const DEVTOOLS_PORT_RANGE: (u16, u16) = (6830, 6840);
 
 #[derive(Debug)]
 pub enum DevtoolsProtoEvent {
@@ -437,7 +440,7 @@ pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_serv
     chomp::dump_pcap_file(file, &mut chomper)?;
 
     let cancel = CancellationToken::new();
-    let h = run_devtools_server(bits, cancel.clone());
+    let h = run_devtools_server(bits, cancel.clone(), DEVTOOLS_PORT_RANGE);
 
     loop {
         tokio::select! {
@@ -475,13 +478,43 @@ pub fn make_devtools_listener() -> (DevtoolsListener, ListenerBits) {
     )
 }
 
+async fn try_make_conn_stream(
+    port_range: (u16, u16),
+) -> Result<ConnectionStream, devtools_server::Error> {
+    for port in port_range.0..=port_range.1 {
+        let sa = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
+        match ConnectionStream::new(sa).await {
+            Ok(s) => {
+                tracing::info!("Listening on ws://127.0.0.1:{port}");
+                // FIXME: We should possibly bundle devtools ourselves too, but
+                // this seems like a really annoying build engineering task
+                // given that the npm package chrome-devtools-frontend is useless.
+                tracing::info!(
+                    "Browse to this URL in Chromium to view: devtools://devtools/bundled/inspector.html?ws=localhost:{port}"
+                );
+                return Ok(s);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
+                continue;
+            }
+            Err(other) => {
+                return Err(other.into());
+            }
+        }
+    }
+    Err(format!(
+        "Could not bind a port in range {} .. {}",
+        port_range.0, port_range.1
+    )
+    .into())
+}
+
 pub async fn run_devtools_server(
     bits: ListenerBits,
     cancel: CancellationToken,
+    port_range: (u16, u16),
 ) -> Result<(), devtools_server::Error> {
-    let mut conns = ConnectionStream::new("127.0.0.1:1337".parse().unwrap())
-        .await?
-        .fuse();
+    let mut conns = try_make_conn_stream(port_range).await?.fuse();
 
     loop {
         tokio::select! {
@@ -495,9 +528,6 @@ pub async fn run_devtools_server(
                 let cancel = cancel.clone();
 
                 tokio::spawn(async move {
-                    // delay because chrome devtools protocol trace seems to miss
-                    // really fast initial data 🙈🙉🙊
-                    tokio::time::sleep(Duration::from_millis(200)).await;
                     match client_state.handle_conn(conn, recv, cancel).await {
                         Ok(()) => {}
                         Err(e) => tracing::error!("error in websocket connection: {e}"),

@@ -43,7 +43,9 @@ use std::{
 
 use crate::{
     chomper,
-    devtools::{make_devtools_listener, run_devtools_server, DevtoolsListener},
+    devtools::{
+        make_devtools_listener, run_devtools_server, DevtoolsListener, DEVTOOLS_PORT_RANGE,
+    },
     Error,
 };
 
@@ -201,7 +203,10 @@ impl CaptureToDevtools {
     async fn new(terminate: CancellationToken) -> Self {
         let (devtools_listener, bits) = make_devtools_listener();
 
-        let join = tokio::spawn(async move { run_devtools_server(bits, terminate).await });
+        let join =
+            tokio::spawn(
+                async move { run_devtools_server(bits, terminate, DEVTOOLS_PORT_RANGE).await },
+            );
 
         Self {
             join,

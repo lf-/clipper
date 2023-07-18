@@ -7,6 +7,7 @@
 //! Used to provide the network tab's APIs.
 
 use std::{
+    io,
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
@@ -35,7 +36,7 @@ pub struct ConnectionStream {
 }
 
 impl ConnectionStream {
-    pub async fn new(sa: SocketAddr) -> Result<Self, Error> {
+    pub async fn new(sa: SocketAddr) -> Result<Self, io::Error> {
         let listener = TcpListener::bind(sa).await?;
 
         Ok(Self {
