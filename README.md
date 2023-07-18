@@ -73,12 +73,30 @@ Sitemap: https://jade.fyi/sitemap.xml
 
 https://github.com/lf-/clipper/assets/6652840/47a07fdf-e73b-4a12-b15a-df4812a34c24
 
+## Usage: SSLKEYLOGFILE
+
+Most programs use TLS libraries that support generating data of
+[`SSLKEYLOGFILE`][SSLKEYLOGFILE] format, but do not implement the environment
+variable to activate it. `clipper_inject` can activate this functionality at
+runtime for programs using supported TLS libraries, without using any of the
+other functionality of the Clipper suite.
+
+To do this, invoke a program with `LD_PRELOAD=/path/to/clipper_inject.so
+SSLKEYLOGFILE=somefile.log yourprogram`. For example:
+
+```
+$ LD_PRELOAD=target/debug/libclipper_inject.so SSLKEYLOGFILE=keys.log curl https://google.com/robots.txt
+$ head -n2 keys.log
+SERVER_HANDSHAKE_TRAFFIC_SECRET 4dfb176a8e60669decb212502a1c69b4b4df0709af38f2f2b564e0fc9ee4f2c2 f51cdc5ffb6fc96ce7f334fdbcc2d3f681795d11846bc11bdef566148eb2980b7dc6654f0c13133a5fd1153d9188a4f1
+EXPORTER_SECRET 4dfb176a8e60669decb212502a1c69b4b4df0709af38f2f2b564e0fc9ee4f2c2 d47eaf1623dacd6dad4c4059a7e11c269e4c99ec9eba8911c0c2bd70f56224806fc2e95d6edc5b439fa5a7d51efb4735
+```
+
 ## Name
 
 Clipper is named after the [Clipper chip], a US government attempt to require
-all encryption to be breakable (what's old is new again), because just like the
-Clipper chip, it steals your keys. However, unlike the Clipper chip, Clipper
-gives its users agency.
+all encryption to be breakable in the early '90s (what's old is new again),
+because just like the Clipper chip, it steals your keys. However, unlike the
+Clipper chip, Clipper gives its users agency.
 
 [Clipper chip]: https://en.wikipedia.org/wiki/Clipper_chip
 
@@ -128,7 +146,7 @@ with [tracing-subscriber semantics][tracing-debug-log].
 Inspired by [openssl-keylog] and [mirrord-layer] ([blog
 post][mirrord-blogpost]).
 
-[`SSLKEYLOGFILE`]: https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html
+[SSLKEYLOGFILE]: https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html
 [openssl-keylog]: https://github.com/wpbrown/openssl-keylog
 [mirrord-layer]: https://github.com/metalbear-co/mirrord/tree/main/mirrord/layer
 [mirrord-blogpost]: https://metalbear.co/blog/mirrord-internals-hooking-libc-functions-in-rust-and-fixing-bugs/
