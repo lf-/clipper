@@ -21,6 +21,9 @@ ReqBodyChunk { id: 0, len: 0 }
 
 
 Message:
+RequestFinished { id: 0, len: 87 }
+
+Message:
 NewResponse(0, Parts { status: 200, version: HTTP/1.1, headers: {"server": "nginx", "date": "Fri, 09 Jun 2023 06:33:30 GMT", "content-type": "text/plain; charset=utf-8", "content-length": "71", "last-modified": "Sat, 06 May 2023 05:32:54 GMT", "connection": "close", "etag": "\"6455e686-47\"", "strict-transport-security": "max-age=31536000", "permissions-policy": "interest-cohort=()", "x-frame-options": "sameorigin", "x-content-type-options": "nosniff", "content-security-policy-report-only": "default-src 'self'; style-src 'self' 'unsafe-inline'", "accept-ranges": "bytes"} })
 
 Message:

@@ -39,6 +39,9 @@ ReqBodyChunk { id: 0, len: 0 }
 
 
 Message:
+RequestFinished { id: 0, len: 81 }
+
+Message:
 NewResponse(0, Parts { status: 200, version: HTTP/1.1, headers: {"server": "nginx", "date": "Thu, 15 Jun 2023 21:48:00 GMT", "content-type": "text/plain; charset=utf-8", "content-length": "71", "last-modified": "Sat, 06 May 2023 05:32:54 GMT", "connection": "keep-alive", "etag": "\"6455e686-47\"", "strict-transport-security": "max-age=31536000", "permissions-policy": "interest-cohort=()", "x-frame-options": "sameorigin", "x-content-type-options": "nosniff", "content-security-policy-report-only": "default-src 'self'; style-src 'self' 'unsafe-inline'", "accept-ranges": "bytes"} })
 
 Message:
@@ -60,6 +63,9 @@ Message:
 ReqBodyChunk { id: 1, len: 12 }
 0000: 6e79 616e 7961 6e79 616e 7961             nyanyanyanya
 
+
+Message:
+RequestFinished { id: 1, len: 163 }
 
 Message:
 NewResponse(1, Parts { status: 405, version: HTTP/1.1, headers: {"server": "nginx", "date": "Thu, 15 Jun 2023 21:48:00 GMT", "content-type": "text/html; charset=utf-8", "content-length": "150", "connection": "keep-alive"} })

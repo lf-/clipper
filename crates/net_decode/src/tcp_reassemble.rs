@@ -442,7 +442,7 @@ impl TcpFollower {
                 }
             }
             p => {
-                tracing::warn!("unk protocol {p:?}");
+                tracing::debug!("unk protocol {p:?}");
             }
         }
         Ok(())
@@ -495,11 +495,6 @@ impl<'a, K: Clone + Ord, V> WrappingCursor<'a, K, V> {
         Self::peek_inner(&self.map, pos)
     }
 
-    /// Gets the current position
-    pub fn pos(&self) -> Option<K> {
-        self.pos.clone()
-    }
-
     /// Peeks at the *next* value of the iterator.
     pub fn peek_next(&'a self) -> Option<(&'a K, &'a V)> {
         let pos = self.pos.as_ref()?;
@@ -509,6 +504,7 @@ impl<'a, K: Clone + Ord, V> WrappingCursor<'a, K, V> {
     // XXX: for reasons I don't feel like understanding right now, you cannot
     // make Iterator::next take &'a mut self and this is necessary to not get
     // borrowck on us. idk man.
+    #[cfg(test)]
     pub fn next(&'a mut self) -> Option<(&'a K, &'a V)> {
         let pos = self.pos.as_ref()?;
         if let Some((k, v)) = Self::peek_next_inner(&self.map, pos) {
@@ -517,10 +513,6 @@ impl<'a, K: Clone + Ord, V> WrappingCursor<'a, K, V> {
         } else {
             None
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.pos.is_some()
     }
 
     pub fn remove(&mut self) -> Option<(K, V)> {

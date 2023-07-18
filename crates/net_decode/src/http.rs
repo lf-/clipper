@@ -32,6 +32,7 @@ pub type RequestId = u64;
 pub enum HTTPStreamEvent {
     NewRequest(RequestId, http::request::Parts),
     ReqBodyChunk(RequestId, Vec<u8>),
+    RequestFinished(RequestId, usize),
     NewResponse(RequestId, http::response::Parts),
     RespBodyChunk(RequestId, Vec<u8>),
     ResponseFinished(RequestId, usize),
@@ -47,6 +48,11 @@ impl fmt::Debug for HTTPStreamEvent {
                 .debug_struct("ReqBodyChunk")
                 .field("id", id)
                 .field("len", &chunk.len())
+                .finish(),
+            Self::RequestFinished(id, len) => f
+                .debug_struct("RequestFinished")
+                .field("id", id)
+                .field("len", len)
                 .finish(),
             Self::NewResponse(id, parts) => {
                 f.debug_tuple("NewResponse").field(id).field(parts).finish()
@@ -321,6 +327,22 @@ fn stream_id(f: &HTTP2Frame) -> Option<StreamId> {
     }
 }
 
+fn pseudo_to_uri(
+    pseudo: h2_intercept::frame::Pseudo,
+) -> Result<http::uri::Uri, http::uri::InvalidUriParts> {
+    let mut uri = http::uri::Parts::default();
+    uri.scheme = pseudo
+        .scheme
+        .and_then(|s| http::uri::Scheme::try_from(s.as_bytes()).ok());
+    uri.authority = pseudo
+        .authority
+        .and_then(|a| http::uri::Authority::try_from(a.as_bytes()).ok());
+    uri.path_and_query = pseudo
+        .path
+        .and_then(|p| http::uri::PathAndQuery::try_from(p.as_bytes()).ok());
+    uri.try_into()
+}
+
 type Streams = HashMap<StreamId, Stream>;
 
 impl HTTP2Flow {
@@ -361,55 +383,61 @@ impl HTTP2Flow {
                         ev,
                     );
 
-                    if to_client && data.is_end_stream() {
+                    if data.is_end_stream() {
+                        // FIXME: the length reported here is meaningless
+                        // but I don't know if we can ever get useful data
+                        // for it
+                        let msg = if to_client {
+                            HTTPStreamEvent::ResponseFinished(stream.request_id, 0)
+                        } else {
+                            HTTPStreamEvent::RequestFinished(stream.request_id, 0)
+                        };
                         onward_data.next.on_data(
                             onward_data.timing.clone(),
                             onward_data.target,
                             to_client,
-                            // FIXME: the length reported here is meaningless
-                            // but I don't know if we can ever get useful data
-                            // for it
-                            HTTPStreamEvent::ResponseFinished(stream.request_id, 0),
+                            msg,
                         )
                     }
                     Ok(())
                 },
                 &mut |stream, headers| {
-                    let ev = if to_client {
+                    let evs = if to_client {
                         let mut parts = new_resp_parts();
                         let (pseudo, hs) = headers.into_parts();
                         parts.status = pseudo.status.expect("status missing?");
                         parts.version = http::Version::HTTP_2;
                         parts.headers = hs;
-                        HTTPStreamEvent::NewResponse(stream.request_id, parts)
+                        vec![HTTPStreamEvent::NewResponse(stream.request_id, parts)]
                     } else {
                         let mut parts = new_req_parts();
+
+                        let is_end_stream = headers.is_end_stream();
                         let (pseudo, hs) = headers.into_parts();
                         parts.version = http::Version::HTTP_2;
                         parts.headers = hs;
-                        parts.method = pseudo.method.expect("method missing?");
-                        let mut uri = http::uri::Parts::default();
-                        uri.scheme = Some(http::uri::Scheme::try_from(
-                            pseudo.scheme.expect("missing scheme").as_bytes(),
-                        )?);
-                        uri.authority = Some(http::uri::Authority::try_from(
-                            pseudo.authority.expect("missing authority").as_bytes(),
-                        )?);
-                        uri.path_and_query = Some(http::uri::PathAndQuery::try_from(
-                            pseudo.path.expect("missing path").as_bytes(),
-                        )?);
-                        parts.uri = http::Uri::from_parts(uri)?;
+                        parts.method = pseudo.method.clone().unwrap_or_default();
+                        parts.uri = pseudo_to_uri(pseudo)?;
 
-                        HTTPStreamEvent::NewRequest(stream.request_id, parts)
+                        let mut to_send =
+                            vec![HTTPStreamEvent::NewRequest(stream.request_id, parts)];
+
+                        // There is no body so the length is 0.
+                        if is_end_stream {
+                            to_send.push(HTTPStreamEvent::RequestFinished(stream.request_id, 0));
+                        }
+                        to_send
                     };
 
                     let onward_data = &mut *onward_data.borrow_mut();
-                    onward_data.next.on_data(
-                        onward_data.timing.clone(),
-                        onward_data.target,
-                        to_client,
-                        ev,
-                    );
+                    for ev in evs {
+                        onward_data.next.on_data(
+                            onward_data.timing.clone(),
+                            onward_data.target,
+                            to_client,
+                            ev,
+                        );
+                    }
                     Ok(())
                 },
             )?;
@@ -739,15 +767,24 @@ impl HTTP1Flow {
 
         // end of response, next request is a new one in the same
         // flow/connection
-        if *remain == 0 && to_client {
-            next.next.on_data(
-                next.timing,
-                next.target,
-                to_client,
-                HTTPStreamEvent::ResponseFinished(self.request_id, *encoded_length),
-            );
-            let new = Self::new((next.new_request_id)());
-            let _ = std::mem::replace(self, new);
+        if *remain == 0 {
+            if to_client {
+                next.next.on_data(
+                    next.timing,
+                    next.target,
+                    to_client,
+                    HTTPStreamEvent::ResponseFinished(self.request_id, *encoded_length),
+                );
+                let new = Self::new((next.new_request_id)());
+                let _ = std::mem::replace(self, new);
+            } else {
+                next.next.on_data(
+                    next.timing,
+                    next.target,
+                    to_client,
+                    HTTPStreamEvent::RequestFinished(self.request_id, *encoded_length),
+                );
+            }
         }
 
         to_consume
