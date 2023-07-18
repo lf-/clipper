@@ -71,8 +71,7 @@ Sitemap: https://jade.fyi/sitemap.xml
 </html>
 ```
 
-![recording of doing http requests in a terminal and seeing them in devtools in
-another window immediately](./docs/assets/chrome-devtools-live.mp4)
+https://github.com/lf-/clipper/assets/6652840/47a07fdf-e73b-4a12-b15a-df4812a34c24
 
 ## Name
 
