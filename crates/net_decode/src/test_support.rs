@@ -11,7 +11,9 @@ use std::{
 
 use crate::{
     chomp::{EthernetChomper, FrameChomper},
-    http::{HTTPRequestTracker, HTTPStreamEvent},
+    chomper,
+    dispatch::ListenerDispatcher,
+    http::HTTPStreamEvent,
     key_db::KeyDB,
     listener::{Listener, MessageMeta, SideData, TimingInfo},
     tcp_reassemble::TcpFollower,
@@ -24,6 +26,7 @@ pub static H2: &'static [u8] = include_bytes!("../corpus/http2-conn-reuse.pcapng
 pub static H2_BIG_HEADERS: &'static [u8] = include_bytes!("../corpus/http2-big-headers.pcapng");
 pub static TLS13_SESSION_RESUMPTION: &'static [u8] =
     include_bytes!("../corpus/tls13-session-resumption.pcapng");
+pub static H1_UNENCRYPTED: &'static [u8] = include_bytes!("../corpus/http-80.pcapng");
 
 pub enum Received<T> {
     Message(MessageMeta, T),
@@ -83,10 +86,30 @@ impl<T: Send + Sync> Listener<T> for TestListener<T> {
     }
 
     fn on_side_data(&mut self, data: Box<dyn SideData>) {
-        self.received
-            .write()
-            .unwrap()
-            .push(Received::SideData(data))
+        // We need to deduplicate the inputs we get from the stack, since side
+        // data is duplicated when it is sent to the downstream consumers of a
+        // join.
+        //
+        // XXX: this is trash deduplication code lmao
+        // I think that we should replace it with some code in `listener` which
+        // auto implements a method which uses Any to implement a boxed
+        // comparison that dispatches to concrete Eq/PartialEq instances.
+        let mut g = self.received.write().unwrap();
+        let last = g.last().and_then(|v| match v {
+            Received::SideData(s) => Some(format!("{s:?}")),
+            _ => None,
+        });
+
+        if let Some(last) = last {
+            let v = format!("{:?}", &data);
+
+            if v == last {
+                return;
+            }
+            g.push(Received::SideData(data));
+        } else {
+            g.push(Received::SideData(data));
+        }
     }
 }
 
@@ -168,13 +191,6 @@ pub fn tls_chomper(
 pub fn http_chomper(
     key_db: Arc<RwLock<KeyDB>>,
     received: Arc<RwLock<Vec<Received<HTTPStreamEvent>>>>,
-) -> EthernetChomper<TLSFlowTracker> {
-    EthernetChomper {
-        tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::new(
-            key_db.clone(),
-            Box::new(HTTPRequestTracker::new(Box::new(TestListener { received }))),
-        ),
-        key_db: key_db.clone(),
-    }
+) -> EthernetChomper<ListenerDispatcher> {
+    chomper(TestListener { received }, key_db)
 }

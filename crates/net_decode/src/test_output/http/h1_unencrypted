@@ -1,0 +1,33 @@
+Message:
+NewRequest(0, Parts { method: GET, uri: /robots.txt, version: HTTP/1.1, headers: {"host": "neverssl.com", "user-agent": "curl/8.1.2", "accept": "*/*"} })
+
+Message:
+ReqBodyChunk { id: 0, len: 0 }
+
+
+Message:
+RequestFinished { id: 0, len: 85 }
+
+Message:
+NewResponse(0, Parts { status: 404, version: HTTP/1.1, headers: {"date": "Tue, 18 Jul 2023 07:26:50 GMT", "server": "Apache/2.4.57 ()", "content-length": "196", "content-type": "text/html; charset=iso-8859-1"} })
+
+Message:
+RespBodyChunk { id: 0, len: 196 }
+0000: 3c21 444f 4354 5950 4520 4854 4d4c 2050   <!DOCTYPE.HTML.P
+0010: 5542 4c49 4320 222d 2f2f 4945 5446 2f2f   UBLIC."-//IETF//
+0020: 4454 4420 4854 4d4c 2032 2e30 2f2f 454e   DTD.HTML.2.0//EN
+0030: 223e 0a3c 6874 6d6c 3e3c 6865 6164 3e0a   ">.<html><head>.
+0040: 3c74 6974 6c65 3e34 3034 204e 6f74 2046   <title>404.Not.F
+0050: 6f75 6e64 3c2f 7469 746c 653e 0a3c 2f68   ound</title>.</h
+0060: 6561 643e 3c62 6f64 793e 0a3c 6831 3e4e   ead><body>.<h1>N
+0070: 6f74 2046 6f75 6e64 3c2f 6831 3e0a 3c70   ot.Found</h1>.<p
+0080: 3e54 6865 2072 6571 7565 7374 6564 2055   >The.requested.U
+0090: 524c 2077 6173 206e 6f74 2066 6f75 6e64   RL.was.not.found
+00a0: 206f 6e20 7468 6973 2073 6572 7665 722e   .on.this.server.
+00b0: 3c2f 703e 0a3c 2f62 6f64 793e 3c2f 6874   </p>.</body></ht
+00c0: 6d6c 3e0a                                 ml>.
+
+
+Message:
+ResponseFinished { id: 0, len: 281 }
+

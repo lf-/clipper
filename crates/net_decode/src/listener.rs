@@ -8,6 +8,8 @@ use std::{
     fmt,
 };
 
+use dyn_clone::DynClone;
+
 use crate::chomp::IPTarget;
 
 /// Simple type indexed map
@@ -36,18 +38,20 @@ pub struct TimingInfo {
     pub other_times: TypeMap<Nanos>,
 }
 
-pub trait SideData: fmt::Debug + Send + Sync {
+pub trait SideData: fmt::Debug + DynClone + Send + Sync {
     /// Note massive footgun: if you are using this on Box you need to re-deref
     /// it: `(&*some_box).as_any()`. If you do not, it will wind up using the
     /// type ID of the box itself rather than the contents.
     fn as_any(&self) -> &dyn Any;
 }
 
-impl<T: fmt::Debug + Any + Sized + Send + Sync> SideData for T {
+impl<T: fmt::Debug + Any + Sized + Send + Sync + DynClone> SideData for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
+
+dyn_clone::clone_trait_object!(SideData);
 
 pub struct MessageMeta {
     pub timing: TimingInfo,

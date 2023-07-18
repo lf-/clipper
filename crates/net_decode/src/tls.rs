@@ -47,7 +47,7 @@ pub mod side_data {
     /// Expected to be fed into the stack when a new key is received by the
     /// keys service. The TLS decoding will use these messages to dequeue any
     /// decryptions that are pending keys.
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct NewKeyReceived {
         pub typ: SecretType,
         pub client_random: ClientRandom,
@@ -56,13 +56,14 @@ pub mod side_data {
 
     /// Fired by `net_decode::tls` when an EncryptedExtensions message
     /// with ALPN data is received by the client.
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct ALPNCompleted {
         pub target: IPTarget,
         pub protocols: Vec<ProtocolName>,
     }
 }
 
+#[derive(Clone)]
 pub struct ProtocolName(pub Vec<u8>);
 
 impl fmt::Debug for ProtocolName {

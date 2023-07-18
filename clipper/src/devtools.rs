@@ -36,7 +36,7 @@ use net_decode::{
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
-use crate::{chomper, Error};
+use crate::Error;
 
 pub const DEVTOOLS_PORT_RANGE: (u16, u16) = (6830, 6840);
 
@@ -514,7 +514,7 @@ impl Listener<HTTPStreamEvent> for DevtoolsListener {
 pub async fn do_devtools_server_inner(file: PathBuf) -> Result<(), devtools_server::Error> {
     let key_db = Arc::new(RwLock::new(KeyDB::default()));
     let (devtools_listener, bits) = make_devtools_listener();
-    let mut chomper = chomper(Box::new(devtools_listener), key_db.clone());
+    let mut chomper = net_decode::chomper(devtools_listener, key_db.clone());
     chomp::dump_pcap_file(file, &mut chomper)?;
 
     let cancel = CancellationToken::new();

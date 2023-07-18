@@ -1029,4 +1029,12 @@ mod test {
             &http_test(H2_BIG_HEADERS),
         )
     }
+
+    #[test]
+    fn test_h1_unencrypted() {
+        check(
+            expect_test::expect_file!("./test_output/http/h1_unencrypted"),
+            &http_test(H1_UNENCRYPTED),
+        )
+    }
 }

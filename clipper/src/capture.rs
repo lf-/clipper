@@ -14,9 +14,9 @@ use clipper_protocol::proto::embedding::{
 use futures::{Future, StreamExt};
 use net_decode::{
     chomp::{EthernetChomper, FrameChomper},
+    dispatch::ListenerDispatcher,
     key_db::{ClientRandom, KeyDB, Secret, SecretType},
     listener::TimingInfo,
-    tls::TLSFlowTracker,
 };
 use tokio::{
     fs::OpenOptions as TokioOpenOptions,
@@ -42,7 +42,6 @@ use std::{
 };
 
 use crate::{
-    chomper,
     devtools::{
         make_devtools_listener, run_devtools_server, DevtoolsListener, DEVTOOLS_PORT_RANGE,
     },
@@ -195,7 +194,7 @@ impl CaptureTarget for CaptureToPcap {
 
 pub struct CaptureToDevtools {
     devtools_listener: Option<DevtoolsListener>,
-    chomper: Option<EthernetChomper<TLSFlowTracker>>,
+    chomper: Option<EthernetChomper<ListenerDispatcher>>,
     join: tokio::task::JoinHandle<Result<(), Error>>,
 }
 
@@ -217,8 +216,8 @@ impl CaptureToDevtools {
 
     fn init(&mut self, key_db: Arc<RwLock<KeyDB>>) {
         if self.chomper.is_none() {
-            self.chomper = Some(chomper(
-                Box::new(self.devtools_listener.take().unwrap()),
+            self.chomper = Some(net_decode::chomper(
+                self.devtools_listener.take().unwrap(),
                 key_db,
             ));
         }
