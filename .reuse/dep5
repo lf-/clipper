@@ -8,6 +8,6 @@ Files: h2-intercept/*
 Copyright: 2023 h2 Contributors
 License: MIT
 
-Files: crates/net_decode/corpus/* crates/net_decode/src/test_output/*
+Files: crates/net_decode/corpus/* crates/net_decode/src/test_output/* docs/assets/*
 Copyright: 2023 Jade Lovelace
 License: MPL-2.0

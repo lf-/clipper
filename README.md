@@ -6,54 +6,107 @@ SPDX-License-Identifier: MPL-2.0
 
 # clipper
 
-This is a project to escrow TLS keys for debugging, named after the notorious
-Clipper chip.
+The Clipper project allows you to easily debug HTTPS traffic of unmodified
+native applications, completely unprivileged (on Linux), without introducing
+any application-level tampering. It allows you to attach Chrome Dev Tools to
+most applications and view all their traffic as well as dump PCAPng files
+with included decryption keys, in one command.
 
-## Motivation
+## Usage: pcaps
 
-It's getting increasingly annoying to debug things since you can't dump clean
-request logs given TLS; this requires application support and sucks way more
-than doing it in a browser. I would like to be able to essentially get
-`fiddler2`/OWASP ZAP results but without requiring applications deal with
-proxies or trust weird CAs.
+```
+$ cargo run -p clipper -- capture -o nya.pcapng bash
+[jade@tail-bot clipper]$ curl https://google.com
+<HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<TITLE>301 Moved</TITLE></HEAD><BODY>
+<H1>301 Moved</H1>
+The document has moved
+<A HREF="https://www.google.com/">here</A>.
+</BODY></HTML>
+[jade@tail-bot clipper]$ exit
 
-An interesting direction this may go is to attach Chrome devtools via [Chrome
-devtools protocol][devtools-net].
+# You can look at the decrypted packets in tshark/wireshark:
 
-[devtools-net]: https://chromedevtools.github.io/devtools-protocol/1-3/Network/
+$ tshark -r nya.pcapng -T fields -e '_ws.col.Info'
+<...>
+HEADERS[1]: GET /
+443 → 43278 [ACK] Seq=6789 Ack=742 Win=65535 Len=0
+SETTINGS[0], WINDOW_UPDATE[0]
+SETTINGS[0]
+SETTINGS[0]
+DATA[1]
+43278 → 443 [ACK] Seq=773 Ack=8139 Win=63000 Len=0
+DATA[1] (text/html)
+PING[0]
+
+# You can look at recorded pcaps in DevTools
+
+$ cargo run -p clipper -- devtools-server ./nya.pcapng
+ INFO clipper::devtools: Listening on ws://127.0.0.1:6830
+ INFO clipper::devtools: Browse to this URL in Chromium to view: devtools://devtools/bundled/inspector.html?ws=localhost:6830
+```
+
+![screenshot of chrome devtools showing one request to google.com performed by
+curl](./docs/assets/chrome-devtools-demo.png)
+
+## Usage: live DevTools
+
+```
+$ cargo run -p clipper -- capture-devtools bash
+ INFO clipper::devtools: Listening on ws://127.0.0.1:6830
+ INFO clipper::devtools: Browse to this URL in Chromium to view: devtools://devtools
+/bundled/inspector.html?ws=localhost:6830
+[jade@tail-bot clipper]$ curl https://jade.fyi/robots.txt
+User-agent: *
+Disallow:
+Allow: /
+Sitemap: https://jade.fyi/sitemap.xml
+[jade@tail-bot clipper]$ curl -X POST -d 'nya nya nya' https://jade.fyi/robots.txt
+<html>
+<head><title>405 Not Allowed</title></head>
+<body>
+<center><h1>405 Not Allowed</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+```
+
+![recording of doing http requests in a terminal and seeing them in devtools in
+another window immediately](./docs/assets/chrome-devtools-live.mp4)
+
+## Name
+
+Clipper is named after the [Clipper chip], a US government attempt to require
+all encryption to be breakable (what's old is new again), because just like the
+Clipper chip, it steals your keys. However, unlike the Clipper chip, Clipper
+gives its users agency.
+
+[Clipper chip]: https://en.wikipedia.org/wiki/Clipper_chip
 
 ## Design
 
-This is effectively a daemon for receiving [`SSLKEYLOGFILE`] data from some
-processes on a system, which can be further used by other systems to provide
-transparent interception of traffic (and collation with pcap files).
+### `clipper`
 
-Maybe the ideal usage of this is to be able to run:
+The Clipper host process contains the following:
+* a daemon for receiving [`SSLKEYLOGFILE`] data from some processes on a system
+  by gRPC over a Unix socket (FIXME: allow key gathering from remote systems
+  e.g. Android)
+* a packet capture system
+* network decoding stack (`net_decode`)
+* a Chrome Dev Tools Protocol implementation (`devtools_server`,
+  `clipper::devtools`)
+* rootless Linux container execution (`wire_blahaj::unprivileged`)
 
-```
-clipper app.pcap -- bad-app
-```
+Inside the container, processes are run with `clipper_inject` injected with
+`LD_PRELOAD`, which intercepts all the TLS keys and sends them onwards.
 
-and the pcap will include all the necessary keys to decrypt all the TLS sent by
-the application, regardless of which TLS libraries it uses, without
-recompilation.
+You can get debug logging for `clipper` using the `RUST_LOG` environment
+variable, with [tracing-subscriber semantics][tracing-debug-log].
 
-The layering (WIP) is as follows:
-- clipper_inject gets keys and sends them to some desired location. It can be
-  used standalone to extract key log files from programs that don't want to
-  provide them.
-- clipper invokes programs under interception, captures the actual network
-  traffic (shells out?), and possibly provides it to other programs to process.
+### `clipper_inject`
 
-  FIXME: should clipper provide a devtools implementation for interception, or
-  should that be a separate tool that communicates with clipper? It could go
-  either way; I can see wanting to open pcaps and use them with devtools, which
-  is a different use case.
-
-### clipper_inject
-
-This is a `LD_PRELOAD` library which pulls keys out of the following TLS
-libraries using Frida GUM:
+This is a `LD_PRELOAD` library which can currently pull keys out of the
+following TLS libraries using Frida GUM:
 
 - [x] OpenSSL
 - [x] rustls
@@ -68,6 +121,11 @@ It can then send the keys onwards. Planned ways to send them onwards:
 - [x] Implement SSLKEYLOGFILE
 - [x] Send to clipper service over an IPC socket
 
+The debug logging for `clipper_inject` can be controlled with `CLIPPER_LOG`
+with [tracing-subscriber semantics][tracing-debug-log].
+
+[tracing-debug-log]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html
+
 Inspired by [openssl-keylog] and [mirrord-layer] ([blog
 post][mirrord-blogpost]).
 
@@ -75,25 +133,6 @@ post][mirrord-blogpost]).
 [openssl-keylog]: https://github.com/wpbrown/openssl-keylog
 [mirrord-layer]: https://github.com/metalbear-co/mirrord/tree/main/mirrord/layer
 [mirrord-blogpost]: https://metalbear.co/blog/mirrord-internals-hooking-libc-functions-in-rust-and-fixing-bugs/
-
-### clipper_dump
-
-`clipper_dump` is a debugging tool for our underlying TLS, TCP, and HTTP
-libraries. It allows dumping pcaps and running them through our network
-protocol implementations to validate them. It will likely have other
-functionality in the future related to this goal.
-
-FIXME: use similar techniques for automated snapshot testing: take a pcap and
-turn it into logs.
-
-FIXME: should this actually be a subcommand of `clipper`? How should the CLI
-evolve?
-
-Example usage:
-
-```
-RUST_LOG=net_decode::tcp_reassemble=info,debug cargo run -p clipper_dump -- dump-pcap corpus/nya-dsb.pcapng
-```
 
 ### Implementation notes: packet capture
 
@@ -113,7 +152,7 @@ only our own child processes (which would be a success!).
 [userspace-tcp]: https://github.com/rootless-containers/slirp4netns
 [rootlesskit]: https://github.com/rootless-containers/rootlesskit
 
-To test with the current setup:
+To capture with tcpdump and attach Clipper'd key logs:
 
 ```
 (in one terminal)
@@ -145,12 +184,3 @@ It looks like tls-parser does not actually support decrypting sessions. So
 that's No Fun. However, I am also not foolish enough to write a TLS
 implementation. Thus we are forking rustls to do horrible horrible crimes to
 it and poke all the internals. Exciting!
-
-### Chrome Dev Tools
-
-You can crime the included dev tools to connect to another host with:
-
-`devtools://devtools/bundled/inspector.html?ws=localhost:1337`
-
-This is sort of evil but it means that we don't have to build or distribute
-devtools, an annoying task.
