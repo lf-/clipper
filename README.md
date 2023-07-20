@@ -201,3 +201,10 @@ It looks like tls-parser does not actually support decrypting sessions. So
 that's No Fun. However, I am also not foolish enough to write a TLS
 implementation. Thus we are forking rustls to do horrible horrible crimes to
 it and poke all the internals. Exciting!
+
+## Contributing
+
+Contributions are welcome but please check with me by filing an issue
+prior to making new features or major changes. Please be aware that Clipper
+is a one-person volunteer project, and requests may be rejected for reasons of
+time or maintenance burden.

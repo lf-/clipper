@@ -3,12 +3,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Writing of pcap files.
-//!
-//! FIXME: the pcapng standard states that DSB blocks SHOULD be at the start of
-//! the file, effectively. We also assume that, for now (although we will have
-//! to start buffering packets we don't have keys for, to do live capture).
-//! However, this is *extremely* annoying if you are doing your pcap writing at
-//! the same time as gathering decryption secrets.
 
 use std::{collections::BTreeMap, io};
 
