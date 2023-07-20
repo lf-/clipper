@@ -22,6 +22,7 @@ use std::{
     io::{IoSlice, IoSliceMut, Read, Write},
     mem,
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+    path::Path,
     pin::Pin,
     process::{exit, Command, Stdio},
     task::{Context, Poll},
@@ -32,7 +33,11 @@ use nix::{
     cmsg_space,
     errno::Errno,
     ioctl_readwrite_bad,
-    libc::{self, prctl, SYS_pidfd_open, PIDFD_NONBLOCK, PR_SET_NO_NEW_PRIVS},
+    libc::{
+        self, prctl, syscall, SYS_capset, SYS_pidfd_open, PIDFD_NONBLOCK, PR_CAP_AMBIENT,
+        PR_CAP_AMBIENT_RAISE, PR_SET_NO_NEW_PRIVS,
+    },
+    mount::{mount, MsFlags},
     sched::{unshare, CloneFlags},
     sys::{
         socket::{
@@ -271,6 +276,58 @@ fn setup_uids(uid_in_parent: Uid, gid_in_parent: Gid) -> Result<(), Error> {
     Ok(())
 }
 
+fn setup_resolvconf(temp: &Path) -> Result<(), Error> {
+    let lowerdir = temp.join("resolvconf_lowerdir");
+    fs::create_dir(&lowerdir).context("mkdir resolvconf_lowerdir")?;
+
+    fs::write(lowerdir.join("resolv.conf"), "nameserver 10.0.2.3\n")
+        .context("write resolv.conf")?;
+
+    // This is absurd. It's a string but it's treated as a path by `nix` so
+    // it's majorly annoying.
+    let mut option = b"lowerdir=".to_vec();
+    option.extend_from_slice(lowerdir.to_str().unwrap().as_bytes());
+    option.extend_from_slice(b":/etc");
+    let option = CString::new(option).unwrap();
+
+    mount(
+        None::<&str>,
+        "/etc",
+        Some("overlay"),
+        MsFlags::MS_RDONLY,
+        Some(option.as_c_str()),
+    )
+    .context("mount overlayfs")?;
+    Ok(())
+}
+
+#[repr(C)]
+struct UserCapHeader {
+    version: u32,
+    pid: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct UserCapData {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+}
+
+fn capset(header: &UserCapHeader, data: &[UserCapData; 2]) -> i32 {
+    unsafe {
+        syscall(
+            SYS_capset,
+            header as *const UserCapHeader as usize,
+            data as *const UserCapData as usize,
+        ) as i32
+    }
+}
+
+const CAP_SYS_ADMIN: c_int = 21;
+const LINUX_CAPABILITY_VERSION_3: u32 = 0x20080522;
+
 /// Child process, which drops privileges and execs the specified command.
 ///
 /// It:
@@ -290,7 +347,8 @@ fn child(
     let uid_in_parent = getuid();
     let gid_in_parent = getgid();
 
-    unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNET).context("unshare")?;
+    unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNET | CloneFlags::CLONE_NEWNS)
+        .context("unshare")?;
     send_1_and_close(notify_child_ready_pipe).context("notify parent that child is ready")?;
     tracing::debug!("child notify");
 
@@ -312,6 +370,36 @@ fn child(
     close(sock).context("close fd passing socket")?;
     close(capture_sock).context("close capture socket")?;
 
+    setup_resolvconf(hooks.temp_dir())?;
+
+    unsafe {
+        // Need to set the capability set of *this* process to have all caps in
+        // inheritable such that PR_CAP_AMBIENT_RAISE works.
+        let cap_data = UserCapData {
+            effective: 0xffff_ffff,
+            permitted: 0xffff_ffff,
+            inheritable: 0xffff_ffff,
+        };
+        Errno::result(capset(
+            &UserCapHeader {
+                version: LINUX_CAPABILITY_VERSION_3,
+                pid: 0,
+            },
+            &[cap_data, cap_data],
+        ))
+        .context("capset")?;
+
+        // Raise CAP_SYS_ADMIN in the ambient set so that processes in the
+        // container can do whatever.
+        Errno::result(prctl(
+            PR_CAP_AMBIENT,
+            PR_CAP_AMBIENT_RAISE,
+            CAP_SYS_ADMIN,
+            0,
+            0,
+        ))
+        .context("raise ambient")?
+    };
     setup_uids(uid_in_parent, gid_in_parent)?;
 
     for (var, val) in hooks.add_env() {
@@ -339,6 +427,8 @@ pub trait LaunchHooks {
     /// Executed in the parent process after networking is started and the
     /// child process is either about to exec or has already.
     fn parent_go(&mut self, _child_pidfd: RawFd, _capture_fd: RawFd) {}
+
+    fn temp_dir(&self) -> &Path;
 
     /// Executed in the child process after fork, just prior to executing the
     /// new process.

@@ -317,13 +317,13 @@ type MakeCapture<T> =
 
 struct ClipperLaunchHooks<T: CaptureTarget> {
     make_capture: MakeCapture<T>,
-    unix_sock_dir: PathBuf,
+    temp_dir: PathBuf,
     unix_listener: Option<UnixListener>,
 }
 
 impl<T: CaptureTarget> ClipperLaunchHooks<T> {
     fn sock(&self) -> PathBuf {
-        self.unix_sock_dir.join(SOCK_NAME)
+        self.temp_dir.join(SOCK_NAME)
     }
 }
 
@@ -340,7 +340,7 @@ impl<T: CaptureTarget + Unpin + 'static> LaunchHooks for ClipperLaunchHooks<T> {
             .build()
             .unwrap();
 
-        let unix_sock_dir = self.unix_sock_dir.clone();
+        let unix_sock_dir = self.temp_dir.clone();
         let listener = self.unix_listener.take().unwrap();
 
         match rt.block_on(async move {
@@ -385,6 +385,10 @@ impl<T: CaptureTarget + Unpin + 'static> LaunchHooks for ClipperLaunchHooks<T> {
         }
     }
 
+    fn temp_dir(&self) -> &Path {
+        &self.temp_dir
+    }
+
     fn add_env(&self) -> Vec<(String, String)> {
         let mut vars = vec![(
             clipper_protocol::SOCKET_ENV_VAR.to_string(),
@@ -419,7 +423,7 @@ pub fn do_capture<T: CaptureTarget + Unpin + 'static>(
     let temp_dir = tempfile::tempdir()?;
     let mut hooks = ClipperLaunchHooks {
         make_capture,
-        unix_sock_dir: temp_dir.into_path(),
+        temp_dir: temp_dir.into_path(),
         unix_listener: None,
     };
 
