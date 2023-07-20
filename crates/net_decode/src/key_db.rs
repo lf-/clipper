@@ -8,23 +8,7 @@
 
 use std::{collections::HashMap, fmt, io::Write};
 
-// FIXME: probably should move into some common crate, this is duplicated in
-// clipper_inject::log_target.
-struct Hex<'a>(&'a [u8]);
-impl fmt::Display for Hex<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for b in self.0 {
-            write!(f, "{b:02x}")?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Debug for Hex<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
+use misc::Hex;
 
 /// To avoid any unintended coupling to rustls, we use our own type for this.
 #[derive(Clone, PartialEq, Eq, Hash)]

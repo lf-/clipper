@@ -23,3 +23,19 @@ impl<'a> fmt::Debug for Show<'a> {
         fmt::Display::fmt(self, f)
     }
 }
+
+pub struct Hex<'a>(pub &'a [u8]);
+impl fmt::Display for Hex<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for b in self.0 {
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Hex<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}

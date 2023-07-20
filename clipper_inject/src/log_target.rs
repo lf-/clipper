@@ -5,26 +5,17 @@
 //! Target for the key material logs
 
 use std::{
-    fmt,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
+
+use misc::Hex;
 
 use crate::rpc;
 pub static LOG_TARGET: OnceLock<Box<dyn LogTarget>> = OnceLock::new();
 
 pub trait LogTarget: Send + Sync {
     fn log(&self, label: &str, client_random: &[u8], secret: &[u8]);
-}
-
-struct Hex<'a>(&'a [u8]);
-impl fmt::Display for Hex<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for b in self.0 {
-            write!(f, "{b:02x}")?;
-        }
-        Ok(())
-    }
 }
 
 pub struct LogTargetStream<W: std::io::Write>(Mutex<W>);

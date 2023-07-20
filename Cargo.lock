@@ -501,6 +501,7 @@ dependencies = [
  "hex",
  "lazy_static",
  "libc",
+ "misc",
  "regex",
  "rustc-demangle",
  "thiserror",
