@@ -202,9 +202,41 @@ that's No Fun. However, I am also not foolish enough to write a TLS
 implementation. Thus we are forking rustls to do horrible horrible crimes to
 it and poke all the internals. Exciting!
 
+## Known issues
+
+- Capture is not supported on non-Linux systems. Probably the way to implement
+  this is to expect to be run as root, then drop privs to `SUDO_UID` and
+  `SUDO_GID` after starting capture. We would likely want to use libpcap or
+  suchlike to do multi-platform properly.
+
+  It's also unclear how to restrict to *just* the processes we care about
+  capturing.
+
+  However, I only have Linux computers, so this is a low priority issue I
+  also physically can't fix.
+- `clipper_inject` could probably use to be ported to macOS. This should not
+  actually be that hard, but it is annoying. For example, use
+  `DYLD_INSERT_LIBRARIES` instead of `LD_PRELOAD`, and fix up references to
+  `.so` files.
+- `clipper` searches not at all cleverly for `clipper_inject` binaries, which
+  will become a problem when we do packaging.
+- Chrome says "Provisional headers" on our requests. I don't know why this is
+  exactly, and I would somewhat like to fix it but it is merely visual.
+- We rely on the built-in dev tools in Chromium. This is OK but it would be
+  nicer to be able to use it in Firefox too. Note that there is a [bug in the
+  chrome-devtools-frontend NPM package that means we would have to build it
+  ourselves](https://crbug.com/1465671), which I am not going to do.
+
+  Another benefit of shipping our own dev tools is that we could remove the
+  unhelpful tabs and stop trying to screencast the page automatically.
+- We don't support TLS 1.2. It could be useful, in some circumstances, but I am
+  probably not going to write the code soon.
+- There's definitely some prototype quality code in the project, and we could
+  use to test against more samples of TLS and HTTP.
+
 ## Contributing
 
-Contributions are welcome but please check with me by filing an issue
-prior to making new features or major changes. Please be aware that Clipper
-is a one-person volunteer project, and requests may be rejected for reasons of
-time or maintenance burden.
+Contributions are accepted but please check with me by filing an issue
+prior to making new features or major changes. Clipper is a one-person
+volunteer project, and requests may be rejected for reasons of time or
+maintenance burden.
