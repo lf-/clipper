@@ -118,6 +118,11 @@ SERVER_HANDSHAKE_TRAFFIC_SECRET 4dfb176a8e60669decb212502a1c69b4b4df0709af38f2f2
 EXPORTER_SECRET 4dfb176a8e60669decb212502a1c69b4b4df0709af38f2f2b564e0fc9ee4f2c2 d47eaf1623dacd6dad4c4059a7e11c269e4c99ec9eba8911c0c2bd70f56224806fc2e95d6edc5b439fa5a7d51efb4735
 ```
 
+## Internal IP addresses
+
+The container is in the IP space 10.0.2.0/24, with a gateway at 10.0.2.2, DNS
+at 10.0.2.3. You can access host localhost services on 10.0.2.2.
+
 ## Name
 
 Clipper is named after the [Clipper chip], a US government attempt to require
