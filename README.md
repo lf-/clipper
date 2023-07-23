@@ -12,10 +12,36 @@ any application-level tampering. It allows you to attach Chrome Dev Tools to
 most applications and view all their traffic as well as dump PCAPng files
 with included decryption keys, in one command.
 
+## Build setup
+
+Clipper requires a nightly Rust compiler to build. I used 1.73.0-nightly
+(2023-07-09) but anything recent should work.
+
+Since frida-gum is written in C it makes Clipper slightly annoying to build. I
+want to make this less annoying in the future, but I just haven't figured out
+how I plan to do so yet without losing Nix compatibility. You'll need to have a
+built frida-gum, for example by downloading one:
+
+```
+$ curl -L -o frida-gum.tar.xz "https://github.com/frida/frida/releases/download/16.1.3/frida-gum-devkit-16.1.3-linux-x86_64.tar.xz"
+$ mkdir frida-gum
+$ tar -C frida-gum -xf frida-gum.tar.xz
+
+# Make bindgen see it:
+
+$ export BINDGEN_EXTRA_CLANG_ARGS="-I$(pwd)/frida-gum"
+$ export LIBRARY_PATH="$(pwd)/frida-gum"
+```
+
+Alternatively, use `nix develop` and then it will pick it up for you
+automatically (although it will then possibly link to Nix stuff which is highly
+inconvenient if you're not on NixOS due to `clipper_inject` being a
+`LD_PRELOAD` library).
+
 ## Usage: pcaps
 
 ```
-$ cargo run -p clipper -- capture -o nya.pcapng bash
+$ cargo build --workspace && cargo run -p clipper -- capture -o nya.pcapng bash
 [jade@tail-bot clipper]$ curl https://google.com
 <HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
 <TITLE>301 Moved</TITLE></HEAD><BODY>
@@ -52,7 +78,7 @@ curl](./docs/assets/chrome-devtools-demo.png)
 ## Usage: live DevTools
 
 ```
-$ cargo run -p clipper -- capture-devtools bash
+$ cargo build --workspace && cargo run -p clipper -- capture-devtools bash
  INFO clipper::devtools: Listening on ws://127.0.0.1:6830
  INFO clipper::devtools: Browse to this URL in Chromium to view: devtools://devtools
 /bundled/inspector.html?ws=localhost:6830
@@ -85,6 +111,7 @@ To do this, invoke a program with `LD_PRELOAD=/path/to/clipper_inject.so
 SSLKEYLOGFILE=somefile.log yourprogram`. For example:
 
 ```
+$ cargo build --workspace
 $ LD_PRELOAD=target/debug/libclipper_inject.so SSLKEYLOGFILE=keys.log curl https://google.com/robots.txt
 $ head -n2 keys.log
 SERVER_HANDSHAKE_TRAFFIC_SECRET 4dfb176a8e60669decb212502a1c69b4b4df0709af38f2f2b564e0fc9ee4f2c2 f51cdc5ffb6fc96ce7f334fdbcc2d3f681795d11846bc11bdef566148eb2980b7dc6654f0c13133a5fd1153d9188a4f1
