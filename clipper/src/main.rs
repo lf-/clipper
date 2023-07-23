@@ -27,6 +27,9 @@ mod devtools;
 
 pub const APP_IDENTIFICATION: &'static str = concat!("clipper ", env!("CARGO_PKG_VERSION"));
 
+#[cfg(target_os = "linux")]
+pub const CLIPPER_INJECT_DYLIB_NAME: &'static str = "libclipper_inject.so";
+
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(clap::Parser, Debug)]

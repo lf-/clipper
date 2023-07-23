@@ -250,8 +250,6 @@ it and poke all the internals. Exciting!
   actually be that hard, but it is annoying. For example, use
   `DYLD_INSERT_LIBRARIES` instead of `LD_PRELOAD`, and fix up references to
   `.so` files.
-- `clipper` searches not at all cleverly for `clipper_inject` binaries, which
-  will become a problem when we do packaging.
 - Chrome says "Provisional headers" on our requests. I don't know why this is
   exactly, and I would somewhat like to fix it but it is merely visual.
 - We rely on the built-in dev tools in Chromium. This is OK but it would be

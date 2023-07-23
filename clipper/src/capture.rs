@@ -327,6 +327,28 @@ impl<T: CaptureTarget> ClipperLaunchHooks<T> {
     }
 }
 
+fn find_clipper_inject() -> Option<PathBuf> {
+    let this_exe = read_link("/proc/self/exe").ok()?;
+
+    let dev_path = || Some(this_exe.parent()?.join(crate::CLIPPER_INJECT_DYLIB_NAME));
+    let prod_path = || {
+        Some(
+            this_exe
+                .parent()?
+                .parent()?
+                .join("lib")
+                .join(crate::CLIPPER_INJECT_DYLIB_NAME),
+        )
+    };
+
+    for path in dev_path().into_iter().chain(prod_path().into_iter()) {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 impl<T: CaptureTarget + Unpin + 'static> LaunchHooks for ClipperLaunchHooks<T> {
     fn parent_after_fork(&mut self) {
         let listener = UnixListener::bind(self.sock()).expect("bind unix sock");
@@ -395,14 +417,9 @@ impl<T: CaptureTarget + Unpin + 'static> LaunchHooks for ClipperLaunchHooks<T> {
             self.sock().to_str().unwrap().to_string(),
         )];
 
-        // FIXME: this will be very broken for packaging
-        let clipper_inject_so = read_link("/proc/self/exe")
-            .ok()
-            .and_then(|l| Some(l.parent()?.join("libclipper_inject.so")));
+        let clipper_inject_so = find_clipper_inject();
         if let Some(so) = clipper_inject_so {
-            if so.exists() {
-                vars.push(("LD_PRELOAD".to_string(), so.to_str().unwrap().to_string()))
-            }
+            vars.push(("LD_PRELOAD".to_string(), so.to_str().unwrap().to_string()))
         }
 
         vars
