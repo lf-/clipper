@@ -430,6 +430,7 @@ impl TLSState for NeedKeys {
         msg: &Message,
         common_data: CommonData<'_>,
     ) -> NextStateOrError {
+        tracing::trace!(?self.client_random, "exit NeedKeys");
         self.next.drive(flow, to_client, msg, common_data)
     }
 
@@ -768,7 +769,10 @@ mod test {
     use std::io::Cursor;
 
     use super::*;
-    use crate::{chomp::dump_pcap, test_support::*};
+    use crate::{
+        chomp::{dump_pcap, EthernetChomper},
+        test_support::*,
+    };
 
     fn inorder_test(f: &[u8]) -> Vec<Received<Vec<u8>>> {
         let mut reader = Cursor::new(f);
@@ -777,6 +781,25 @@ mod test {
         let mut chomper = tls_chomper(key_db, received.clone());
 
         dump_pcap(&mut reader, &mut chomper).unwrap();
+        let mut lock = received.write().unwrap();
+        std::mem::take(&mut *lock)
+    }
+
+    fn reorder_test<T: Listener<Vec<u8>>>(
+        f: &[u8],
+        make_chomper: impl FnOnce(
+            Arc<RwLock<KeyDB>>,
+            Arc<RwLock<Vec<Received<Vec<u8>>>>>,
+        ) -> EthernetChomper<T>,
+    ) -> Vec<Received<Vec<u8>>> {
+        let mut reader = Cursor::new(f);
+        let key_db: Arc<RwLock<KeyDB>> = Default::default();
+        let received = Arc::new(RwLock::new(Vec::new()));
+        let mut chomper = make_chomper(key_db, received.clone());
+        let mut chomper2 = KeyMessageReorderer::default();
+
+        dump_pcap(&mut reader, &mut chomper2).unwrap();
+        chomper2.send_late_keys(&mut chomper).unwrap();
         let mut lock = received.write().unwrap();
         std::mem::take(&mut *lock)
     }
@@ -791,18 +814,18 @@ mod test {
 
     #[test]
     fn test_decryption_reordered_keys() {
-        let mut reader = Cursor::new(NYA_DSB);
-        let key_db: Arc<RwLock<KeyDB>> = Default::default();
-        let received = Arc::new(RwLock::new(Vec::new()));
-        let mut chomper = tls_chomper(key_db, received.clone());
-        let mut chomper2 = KeyMessageReorderer::default();
-
-        dump_pcap(&mut reader, &mut chomper2).unwrap();
-        chomper2.send_late_keys(&mut chomper).unwrap();
-
         check(
             expect_test::expect_file!("./test_output/tls/nya_dsb_reordered"),
-            &*received.read().unwrap(),
+            &*reorder_test(NYA_DSB, tls_chomper),
+        );
+    }
+
+    #[test]
+    fn test_decryption_reordered_keys_dispatch() {
+        // It should also work through dispatch just the same.
+        check(
+            expect_test::expect_file!("./test_output/tls/nya_dsb_reordered"),
+            &*reorder_test(NYA_DSB, tls_chomper_dispatch),
         );
     }
 

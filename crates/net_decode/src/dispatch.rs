@@ -80,7 +80,12 @@ impl Listener<Vec<u8>> for ListenerDispatcher {
 
     fn on_side_data(&mut self, data: Box<dyn crate::listener::SideData>) {
         for (_m, l) in &mut self.listeners {
-            l.on_side_data(dyn_clone::clone_box(&data))
+            // NOTE: We need this &* to clone the &dyn SideData *not* the
+            // Box<dyn SideData>, since otherwise we get a Box<Box<dyn
+            // SideData>>
+            let new_data = dyn_clone::clone_box(&*data);
+            // assert_eq!(new_data.type_id(), data.type_id());
+            l.on_side_data(new_data);
         }
     }
 }

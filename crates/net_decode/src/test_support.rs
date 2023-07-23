@@ -12,7 +12,7 @@ use std::{
 use crate::{
     chomp::{EthernetChomper, FrameChomper},
     chomper,
-    dispatch::ListenerDispatcher,
+    dispatch::{self, ListenerDispatcher},
     http::HTTPStreamEvent,
     key_db::KeyDB,
     listener::{Listener, MessageMeta, SideData, TimingInfo},
@@ -177,15 +177,37 @@ where
     expected.assert_eq(&actual);
 }
 
+pub fn raw_chomper<Recv: Listener<Vec<u8>>>(
+    key_db: Arc<RwLock<KeyDB>>,
+    recv: Recv,
+) -> EthernetChomper<Recv> {
+    EthernetChomper {
+        tcp_follower: TcpFollower::default(),
+        recv,
+        key_db: key_db.clone(),
+    }
+}
+
 pub fn tls_chomper(
     key_db: Arc<RwLock<KeyDB>>,
     received: Arc<RwLock<Vec<Received<Vec<u8>>>>>,
 ) -> EthernetChomper<TLSFlowTracker> {
-    EthernetChomper {
-        tcp_follower: TcpFollower::default(),
-        recv: TLSFlowTracker::new(key_db.clone(), Box::new(TestListener { received })),
-        key_db: key_db.clone(),
-    }
+    raw_chomper(
+        key_db.clone(),
+        TLSFlowTracker::new(key_db, Box::new(TestListener { received })),
+    )
+}
+
+pub fn tls_chomper_dispatch(
+    key_db: Arc<RwLock<KeyDB>>,
+    received: Arc<RwLock<Vec<Received<Vec<u8>>>>>,
+) -> EthernetChomper<ListenerDispatcher> {
+    let dispatch = dispatch::ListenerDispatcher::default().add(
+        443,
+        TLSFlowTracker::new(key_db.clone(), Box::new(TestListener { received })),
+    );
+
+    raw_chomper(key_db, dispatch)
 }
 
 pub fn http_chomper(

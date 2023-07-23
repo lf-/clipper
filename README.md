@@ -231,6 +231,8 @@ it and poke all the internals. Exciting!
   unhelpful tabs and stop trying to screencast the page automatically.
 - We don't support TLS 1.2. It could be useful, in some circumstances, but I am
   probably not going to write the code soon.
+- We don't support HTTP/3. Maybe one day, but this requires both DTLS and
+  HTTP/3 parsing.
 - There's definitely some prototype quality code in the project, and we could
   use to test against more samples of TLS and HTTP.
 
