@@ -12,36 +12,20 @@ any application-level tampering. It allows you to attach Chrome Dev Tools to
 most applications and view all their traffic as well as dump PCAPng files
 with included decryption keys, in one command.
 
-## Build setup
+## Acquiring it
 
-Clipper requires a nightly Rust compiler to build. I used 1.73.0-nightly
-(2023-07-09) but anything recent should work.
+The easiest way to get a build of Clipper is to use Nix:
 
-Since frida-gum is written in C it makes Clipper slightly annoying to build. I
-want to make this less annoying in the future, but I just haven't figured out
-how I plan to do so yet without losing Nix compatibility. You'll need to have a
-built frida-gum, for example by downloading one:
+`nix --extra-experimental-features 'nix-command flakes' build github:lf-/clipper`
 
-```
-$ curl -L -o frida-gum.tar.xz "https://github.com/frida/frida/releases/download/16.1.3/frida-gum-devkit-16.1.3-linux-x86_64.tar.xz"
-$ mkdir frida-gum
-$ tar -C frida-gum -xf frida-gum.tar.xz
+Then you will have a `clipper` in `result/bin`.
 
-# Make bindgen see it:
-
-$ export BINDGEN_EXTRA_CLANG_ARGS="-I$(pwd)/frida-gum"
-$ export LIBRARY_PATH="$(pwd)/frida-gum"
-```
-
-Alternatively, use `nix develop` and then it will pick it up for you
-automatically (although it will then possibly link to Nix stuff which is highly
-inconvenient if you're not on NixOS due to `clipper_inject` being a
-`LD_PRELOAD` library).
+Otherwise, see [Development](#Development).
 
 ## Usage: pcaps
 
 ```
-$ cargo build --workspace && cargo run -p clipper -- capture -o nya.pcapng bash
+$ clipper capture -o nya.pcapng bash
 [jade@tail-bot clipper]$ curl https://google.com
 <HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
 <TITLE>301 Moved</TITLE></HEAD><BODY>
@@ -265,6 +249,38 @@ it and poke all the internals. Exciting!
   HTTP/3 parsing.
 - There's definitely some prototype quality code in the project, and we could
   use to test against more samples of TLS and HTTP.
+
+## Development
+
+### Build setup
+
+Clipper requires a nightly Rust compiler to build. I used 1.73.0-nightly
+(2023-07-09) but anything recent should work.
+
+Since frida-gum is written in C it makes Clipper slightly annoying to build. I
+want to make this less annoying in the future, but I just haven't figured out
+how I plan to do so yet without losing Nix compatibility. You'll need to have a
+built frida-gum, for example by downloading one:
+
+```
+$ curl -L -o frida-gum.tar.xz "https://github.com/frida/frida/releases/download/16.1.3/frida-gum-devkit-16.1.3-linux-x86_64.tar.xz"
+$ mkdir frida-gum
+$ tar -C frida-gum -xf frida-gum.tar.xz
+
+# Make bindgen see it:
+
+$ export BINDGEN_EXTRA_CLANG_ARGS="-I$(pwd)/frida-gum"
+$ export LIBRARY_PATH="$(pwd)/frida-gum"
+```
+
+Alternatively, use `nix develop` and then it will pick it up for you
+automatically (although it will then possibly link to Nix stuff which may be
+inconvenient if you're not on NixOS due to `clipper_inject` being a
+`LD_PRELOAD` library; though this seems to be totally fine on my Arch box,
+surprisingly).
+
+Remember to run `cargo build --workspace` such that you have a
+`libclipper_inject.so` built before running `clipper`.
 
 ## Contributing
 

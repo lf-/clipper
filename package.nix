@@ -15,6 +15,10 @@ rustPlatform.buildRustPackage {
     };
   };
 
+  postFixup = ''
+    rm $out/bin/rustls-fixture
+  '';
+
   src = ./.;
 
   buildInputs = [
