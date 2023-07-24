@@ -15,7 +15,7 @@ async-stream = "0.3.5"
 async-trait = "0.1.68"
 base64 = "0.21.2"
 bytes = "1.4.0"
-chrono = "0.4.26"
+chrono = { version = "0.4.26", features = ["clock", "std"], default-features = false }
 clap = { version = "4.3.2", features = ["derive"] }
 clipper_protocol = { version = "0.1.0", path = "../crates/clipper_protocol" }
 devtools_server = { version = "0.1.0", path = "../crates/devtools_server" }
