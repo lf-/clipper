@@ -2,10 +2,9 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-//! Command-line debugging tool for clipper to exercise pcap and network
-//! protocol functionality before the rest of the system is built.
+//! The Clipper CLI.
 use clap::Parser;
-use devtools::do_devtools_server_inner;
+use libclipper::{devtools::do_devtools_server_inner, Error};
 use tracing::metadata::LevelFilter;
 
 use std::{
@@ -20,17 +19,6 @@ use net_decode::{
     listener::DebugListener,
 };
 use tracing_subscriber::prelude::*;
-
-#[cfg(target_os = "linux")]
-mod capture;
-mod devtools;
-
-pub const APP_IDENTIFICATION: &'static str = concat!("clipper ", env!("CARGO_PKG_VERSION"));
-
-#[cfg(target_os = "linux")]
-pub const CLIPPER_INJECT_DYLIB_NAME: &'static str = "libclipper_inject.so";
-
-type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(clap::Parser, Debug)]
 enum Command {
@@ -124,10 +112,12 @@ fn main() -> Result<(), Error> {
         } => do_anonymize(input_file, output_file)?,
         #[cfg(target_os = "linux")]
         Command::Capture { args, output_file } => {
-            capture::do_capture_to_pcap(output_file, fixup_args(args))?
+            libclipper::capture::do_capture_to_pcap(output_file, fixup_args(args))?
         }
         #[cfg(target_os = "linux")]
-        Command::CaptureDevtools { args } => capture::do_capture_to_devtools(fixup_args(args))?,
+        Command::CaptureDevtools { args } => {
+            libclipper::capture::do_capture_to_devtools(fixup_args(args))?
+        }
     }
     Ok(())
 }

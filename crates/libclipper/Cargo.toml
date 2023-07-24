@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "libclipper"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-stream = "0.3.5"
+async-trait = "0.1.68"
+base64 = "0.21.2"
+bytes = "1.4.0"
+clipper_protocol = { version = "0.1.0", path = "../clipper_protocol" }
+devtools_server = { version = "0.1.0", path = "../devtools_server" }
+futures = "0.3.28"
+hexdump = { version = "0.1.0", path = "../hexdump" }
+http = "0.2.9"
+net_decode = { version = "0.1.0", path = "../net_decode" }
+pktparse = "0.7.1"
+serde = "1.0.164"
+serde_json = "1.0.97"
+tempfile = "3.6.0"
+tokio = { version = "1.28.2", features = ["full"] }
+tokio-stream = { version = "0.1.14", features = ["net"] }
+tokio-util = "0.7.8"
+tonic = "0.9.2"
+tracing = "0.1.37"
+wire_blahaj = { version = "0.1.0", path = "../wire_blahaj" }
+
+[dev-dependencies]
+proptest = "1.2.0"

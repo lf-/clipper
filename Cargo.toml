@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [workspace]
-members = ["clipper_inject", "fixtures/*", "crates/*", "rustls-intercept/rustls", "h2-intercept", "clipper"]
+members = ["clipper_inject", "crates/*", "rustls-intercept/rustls", "h2-intercept", "clipper"]
 resolver = "2"
 
 [patch.crates-io]
