@@ -95,6 +95,7 @@ fn do_anonymize(input_file: PathBuf, output_file: PathBuf) -> Result<(), Error> 
     anon_packets::process_pcap(&mut reader, &mut writer)
 }
 
+#[cfg(target_os = "linux")]
 fn fixup_args(args: Vec<String>) -> Vec<String> {
     if args.is_empty() {
         vec![std::env::var("SHELL").unwrap_or("sh".into())]
@@ -126,8 +127,16 @@ fn main() -> Result<(), Error> {
         Command::Capture { args, output_file } => {
             capture::do_capture_to_pcap(output_file, fixup_args(args))?
         }
+        #[cfg(not(target_os = "linux"))]
+        Command::Capture { .. } => {
+            Err("Only supported on Linux")?
+        },
         #[cfg(target_os = "linux")]
         Command::CaptureDevtools { args } => capture::do_capture_to_devtools(fixup_args(args))?,
+        #[cfg(not(target_os = "linux"))]
+        Command::CaptureDevtools { .. } => {
+            Err("Only supported on Linux")?
+        }
     }
     Ok(())
 }
