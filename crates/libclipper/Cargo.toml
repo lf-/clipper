@@ -7,6 +7,10 @@ name = "libclipper"
 version = "0.1.0"
 edition = "2021"
 
+[[test]]
+name = "integration"
+harness = false
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -32,4 +36,5 @@ tracing = "0.1.37"
 wire_blahaj = { version = "0.1.0", path = "../wire_blahaj" }
 
 [dev-dependencies]
-proptest = "1.2.0"
+inventory = "0.3.11"
+libtest-mimic = "0.6.1"

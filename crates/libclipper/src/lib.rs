@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+//! All the interesting integration-level parts of Clipper.
+
 #[cfg(target_os = "linux")]
 pub mod capture;
 pub mod devtools;
