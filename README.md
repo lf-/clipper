@@ -81,7 +81,7 @@ Sitemap: https://jade.fyi/sitemap.xml
 </html>
 ```
 
-https://github.com/lf-/clipper/assets/6652840/47a07fdf-e73b-4a12-b15a-df4812a34c24
+https://github.com/lf-/clipper/assets/6652840/e4557bd1-e6a6-4491-bfb8-c04bf8198085
 
 ## Usage: SSLKEYLOGFILE
 
