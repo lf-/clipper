@@ -273,6 +273,17 @@ $ export BINDGEN_EXTRA_CLANG_ARGS="-I$(pwd)/frida-gum"
 $ export LIBRARY_PATH="$(pwd)/frida-gum"
 ```
 
+(you can also run these commands via `make`)
+
+You can then run clipper via cargo with
+```sh
+$ cargo run -p clipper
+```
+or directly with
+```sh
+$ ./target/debug/clipper
+```
+
 Alternatively, use `nix develop` and then it will pick it up for you
 automatically (although it will then possibly link to Nix stuff which may be
 inconvenient if you're not on NixOS due to `clipper_inject` being a
