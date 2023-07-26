@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-{ rustPlatform, slirp4netns, pkg-config, protobuf, frida, libclang }:
+{ rustPlatform, slirp4netns, pkg-config, protobuf, frida, libclang, openssl }:
 rustPlatform.buildRustPackage {
   pname = "clipper";
   version = "0.0.1";
@@ -16,13 +16,18 @@ rustPlatform.buildRustPackage {
   };
 
   postFixup = ''
-    rm $out/bin/rustls-fixture
+    rm $out/bin/*-fixture
   '';
+
+  # I don't know why this doesn't work, but it definitely does not work.
+  # Possibly the function we're trying to hook is getting LTO'd out?
+  checkType = "debug";
 
   src = ./.;
 
   buildInputs = [
     frida.frida-gum
+    openssl
   ];
 
   nativeBuildInputs = [

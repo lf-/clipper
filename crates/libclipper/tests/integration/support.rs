@@ -162,6 +162,10 @@ pub fn run_keylog_test(fixture: Fixture) -> (Vec<u8>, Output) {
         let output = proc
             .env("LD_PRELOAD", CLIPPER_INJECT)
             .env("SSL_CERT_FILE", &ca_cert)
+            // Make sure Nix patching doesn't cause it to read the wrong file.
+            // Thanks Nix.
+            .env_remove("SSL_CERT_DIR")
+            .env_remove("NIX_SSL_CERT_FILE")
             .env("SSLKEYLOGFILE", &keylogfile)
             .arg("client")
             .arg("example.com")
