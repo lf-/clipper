@@ -3,14 +3,11 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [package]
-name = "rustls-fixture"
+name = "libfixture"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libfixture = { version = "0.1.0", path = "../../crates/libfixture" }
-rustls = "0.21.1"
-rustls-pemfile = "1.0.3"
-webpki-roots = "0.23.1"
+clap = { version = "4.3.19", features = ["derive"] }

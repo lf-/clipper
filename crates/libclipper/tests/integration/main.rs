@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Jade Lovelace
+//
+// SPDX-License-Identifier: MPL-2.0
+
 //! For extremely annoying reasons, Clipper integration tests have to be quite
 //! insane: since `wire_blahaj::unprivileged` forks, it must not be run from a
 //! multithreaded process. In practice this means that we need to reexec as a
@@ -12,6 +16,7 @@ use std::{
 
 use libtest_mimic::{Arguments, Failed, Trial};
 
+mod support;
 mod tests;
 
 const REEXEC_ENVVAR: &'static str = "__LIBCLIPPER_TEST_REEXEC";

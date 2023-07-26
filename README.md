@@ -20,7 +20,7 @@ The easiest way to get a build of Clipper is to use Nix:
 
 Then you will have a `clipper` in `result/bin`.
 
-Otherwise, see [Development](#Development).
+Otherwise, see [Development](#development).
 
 ## Usage: pcaps
 

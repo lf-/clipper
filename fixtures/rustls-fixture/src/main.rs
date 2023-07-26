@@ -3,20 +3,24 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use std::{
-    io::{Read, Write},
+    io::{BufReader, Read, Write},
     net::{TcpStream, ToSocketAddrs},
     sync::Arc,
     time::Duration,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let hostname = "jade.fyi";
+use libfixture::{body, clap::Parser, print_resp, Error};
 
-    let addr = (hostname, 443u16).to_socket_addrs()?.next().unwrap();
-
+fn client(hostname: &str, addr: &str) -> Result<Vec<u8>, Error> {
     // FIXME: we need to do this with a self signed runtime generated cert for
     // fixturing for automated testing. todo.
     let mut root_store = rustls::RootCertStore::empty();
+    if let Ok(v) = std::env::var("SSL_CERT_FILE") {
+        let f = std::fs::OpenOptions::new().read(true).open(v).unwrap();
+        let mut f = BufReader::new(f);
+        let certs = rustls_pemfile::certs(&mut f).unwrap();
+        root_store.add_parsable_certificates(&certs);
+    }
     root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
         rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
             ta.subject,
@@ -33,25 +37,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rc_config = Arc::new(client_config);
     let mut tls = rustls::ClientConnection::new(rc_config, hostname.try_into()?)?;
 
-    let mut conn = TcpStream::connect_timeout(&addr, Duration::from_millis(500))?;
+    let mut conn = TcpStream::connect_timeout(
+        &addr.to_socket_addrs()?.next().unwrap(),
+        Duration::from_millis(500),
+    )?;
     let mut stream = rustls::Stream::new(&mut tls, &mut conn);
 
     let mut plaintext = Vec::new();
-    stream.write_all(
-        concat!(
-            "GET /robots.txt HTTP/1.1\r\n",
-            "Host: jade.fyi\r\n",
-            "Connection: close\r\n",
-            "Accept-Encoding: utf-8\r\n",
-            "\r\n"
-        )
-        .as_bytes(),
-    )?;
+    stream.write_all(&body(hostname))?;
     stream.read_to_end(&mut plaintext)?;
 
-    let plaintext = std::str::from_utf8(&plaintext)?;
+    Ok(plaintext)
+}
 
-    println!("plaintext: {plaintext}");
-
+fn main() -> Result<(), Error> {
+    match libfixture::Subcommand::parse() {
+        libfixture::Subcommand::Client {
+            host_header,
+            host_and_port,
+        } => print_resp(&client(&host_header, &host_and_port)?),
+    }
     Ok(())
 }

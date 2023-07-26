@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
+# Wow, this is undocumented. However:
+# https://github.com/rust-lang/rust-analyzer/issues/14510
+[unstable]
+bindeps = true

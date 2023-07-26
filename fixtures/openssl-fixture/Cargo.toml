@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [package]
-name = "rustls-fixture"
+name = "openssl-fixture"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,6 +11,4 @@ edition = "2021"
 
 [dependencies]
 libfixture = { version = "0.1.0", path = "../../crates/libfixture" }
-rustls = "0.21.1"
-rustls-pemfile = "1.0.3"
-webpki-roots = "0.23.1"
+openssl = "0.10.55"
