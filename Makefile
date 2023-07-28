@@ -10,3 +10,6 @@ target/build/clipper.d: frida-gum
 	export LIBRARY_PATH="frida-gum"
 	cargo build --workspace
 
+clean:
+	cargo clean
+	rm -rf frida-gum
