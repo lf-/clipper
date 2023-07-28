@@ -4,3 +4,4 @@
 
 target/
 frida-gum/
+*.tar.xz
