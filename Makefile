@@ -7,10 +7,9 @@ frida-gum:
 	mkdir frida-gum
 	tar -C frida-gum -xf frida-gum.tar.xz
 
-target/build/clipper.d: frida-gum
-	export BINDGEN_EXTRA_CLANG_ARGS="-Ifrida-gum"
-	export LIBRARY_PATH="frida-gum"
-	cargo build --workspace
+
+target/debug/clipper.d: frida-gum
+	BINDGEN_EXTRA_CLANG_ARGS="-I$$(pwd)/frida-gum" LIBRARY_PATH="$$(pwd)/frida-gum" cargo build --workspace
 
 clean:
 	cargo clean
