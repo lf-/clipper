@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Elliana May
+#
+# SPDX-License-Identifier: MPL-2.0
+
 clipper: target/debug/clipper.d
 
 FRIDA_VERSION="16.1.3"
