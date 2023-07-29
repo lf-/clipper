@@ -1,8 +1,10 @@
 # SPDX-FileCopyrightText: 2023 Elliana May
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
 #
 # SPDX-License-Identifier: MPL-2.0
 
-clipper: target/debug/clipper.d
+default: clipper
+.PHONY: default
 
 FRIDA_VERSION="16.1.3"
 
@@ -12,8 +14,9 @@ frida-gum:
 	tar -C frida-gum -xf frida-gum.tar.xz
 
 
-target/debug/clipper.d: frida-gum
+clipper: frida-gum
 	BINDGEN_EXTRA_CLANG_ARGS="-I$$(pwd)/frida-gum" LIBRARY_PATH="$$(pwd)/frida-gum" cargo build --workspace
+.PHONY: clipper
 
 clean:
 	cargo clean
