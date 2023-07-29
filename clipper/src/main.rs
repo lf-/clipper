@@ -83,6 +83,7 @@ fn do_anonymize(input_file: PathBuf, output_file: PathBuf) -> Result<(), Error> 
     anon_packets::process_pcap(&mut reader, &mut writer)
 }
 
+#[cfg(target_os = "linux")]
 fn fixup_args(args: Vec<String>) -> Vec<String> {
     if args.is_empty() {
         vec![std::env::var("SHELL").unwrap_or("sh".into())]
@@ -110,9 +111,20 @@ fn main() -> Result<(), Error> {
             input_file,
             output_file,
         } => do_anonymize(input_file, output_file)?,
+        #[cfg(not(target_os = "linux"))]
+        Command::Capture {
+            args: _,
+            output_file: _,
+        } => {
+            eprintln!("Capture is currently only supported on Linux. See https://github.com/lf-/clipper/issues/10 for details");
+        }
         #[cfg(target_os = "linux")]
         Command::Capture { args, output_file } => {
             libclipper::capture::do_capture_to_pcap(output_file, fixup_args(args))?
+        }
+        #[cfg(not(target_os = "linux"))]
+        Command::CaptureDevtools { args: _ } => {
+            eprintln!("Capture is currently only supported on Linux. See https://github.com/lf-/clipper/issues/10 for details");
         }
         #[cfg(target_os = "linux")]
         Command::CaptureDevtools { args } => {
