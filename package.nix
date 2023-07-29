@@ -2,7 +2,11 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-{ rustPlatform, slirp4netns, pkg-config, protobuf, frida, libclang, openssl }:
+{ rustPlatform, slirp4netns, pkg-config, protobuf, frida, libclang, openssl, stdenv, lib, makeWrapper }:
+let wrapperArgs =
+  lib.optional stdenv.isLinux
+    [ "--prefix PATH ':' '${slirp4netns}/bin'" ];
+in
 rustPlatform.buildRustPackage {
   pname = "clipper";
   version = "0.0.1";
@@ -17,6 +21,7 @@ rustPlatform.buildRustPackage {
 
   postFixup = ''
     rm $out/bin/*-fixture
+    wrapProgram $out/bin/clipper --inherit-argv0 ${builtins.toString wrapperArgs}
   '';
 
   # I don't know why this doesn't work, but it definitely does not work.
@@ -32,10 +37,10 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [
     rustPlatform.bindgenHook
-    slirp4netns
     pkg-config
     protobuf
-  ];
+    makeWrapper
+  ] ++ lib.optional stdenv.isLinux slirp4netns;
 
   LIBCLANG_PATH = "${libclang.lib}/lib";
 }

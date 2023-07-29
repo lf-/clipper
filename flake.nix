@@ -31,9 +31,18 @@
             rustc = rust;
             cargo = rust;
           };
+
+          inherit (pkgs) lib stdenv;
         in
         {
           packages.default = pkgs.callPackage ./package.nix { rustPlatform = myRustPlatform; };
+
+          checks = {
+            reuse = pkgs.runCommand "reuse-lint" { nativeBuildInputs = [ pkgs.reuse ]; } ''
+              reuse --root ${./.} lint
+              touch $out
+            '';
+          };
 
           devShells.default = pkgs.mkShell {
             buildInputs = with pkgs; [
@@ -44,18 +53,24 @@
             nativeBuildInputs = with pkgs; [
               bashInteractive
               rustPlatform.bindgenHook
-              slirp4netns
               pkg-config
               protobuf
               reuse
-            ];
+            ] ++ lib.optional stdenv.isLinux pkgs.slirp4netns;
 
             LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           };
 
         };
+
+        supportedSystems = [
+          "x86_64-linux"
+          "aarch64-linux"
+          "x86_64-darwin"
+          "aarch64-darwin"
+        ];
     in
-    flake-utils.lib.eachDefaultSystem out // {
+    flake-utils.lib.eachSystem supportedSystems out // {
       overlays.default = final: prev: { };
     };
 

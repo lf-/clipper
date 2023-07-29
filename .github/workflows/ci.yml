@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Nix install
+        uses: determinatesystems/nix-installer-action@v4
+      - name: Run flake checks
+        run: "nix flake check"
+      - name: Nix build
+        run: "nix build .#"
+
