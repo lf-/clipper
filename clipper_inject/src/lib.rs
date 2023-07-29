@@ -39,25 +39,37 @@ fn pick_target() -> Box<dyn LogTarget> {
 
 #[ctor::ctor]
 unsafe fn init() {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(tracing_subscriber::EnvFilter::from_env("CLIPPER_LOG"))
-        .init();
+    unsafe fn init_inner() {
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(tracing_subscriber::EnvFilter::from_env("CLIPPER_LOG"))
+            .init();
 
-    tracing::debug!("nyanyanyanya");
-    let _ = GUM.deref();
-    let modules = Module::enumerate_modules();
-    for md in modules {
-        tracing::debug!(
-            "name={:?} path={:?} base={:x?}",
-            &md.name,
-            &md.path,
-            &md.base_address
-        );
+        tracing::debug!("nyanyanyanya");
+        let _ = GUM.deref();
+        let modules = Module::enumerate_modules();
+        for md in modules {
+            tracing::debug!(
+                "name={:?} path={:?} base={:x?}",
+                &md.name,
+                &md.path,
+                &md.base_address
+            );
+        }
+
+        let _ = LOG_TARGET.set(pick_target());
+
+        let mut hook_service = HookService::new();
+        init_hooks(&mut hook_service);
     }
 
-    let _ = LOG_TARGET.set(pick_target());
-
-    let mut hook_service = HookService::new();
-    init_hooks(&mut hook_service);
+    // Store-brand panic = abort, since we can't have the real one, since Cargo
+    // only lets you set it for an entire workspace.
+    match std::panic::catch_unwind(|| init_inner()) {
+        Ok(()) => {}
+        Err(_e) => {
+            eprintln!("clipper_inject panic!");
+            std::process::abort();
+        }
+    }
 }

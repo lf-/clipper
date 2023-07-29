@@ -130,6 +130,7 @@ impl<'a> HookService<'a> {
         fun: NativePointer,
         redirect_to: NativePointer,
     ) -> Result<NativePointer, HookError> {
+        tracing::debug!("hook {:x?} -> {:x?}", fun.0, redirect_to.0);
         Ok(self
             .interceptor
             .replace(fun, redirect_to, NativePointer(ptr::null_mut()))?)
