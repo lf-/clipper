@@ -5,3 +5,4 @@
 target/
 frida-gum/
 *.tar.xz
+.envrc

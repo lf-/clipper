@@ -2,6 +2,4 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-[toolchain]
-channel = "nightly-2023-07-24"
-profile = "default"
+use flake

@@ -13,6 +13,13 @@ frida-gum:
 	mkdir frida-gum
 	tar -C frida-gum -xf frida-gum.tar.xz
 
+setup: frida-gum
+	cp .envrc.no-nix.sample .envrc
+	direnv allow .
+
+setup-nix:
+	cp .envrc.nix.sample .envrc
+	direnv allow .
 
 clipper: frida-gum
 	BINDGEN_EXTRA_CLANG_ARGS="-I$$(pwd)/frida-gum" LIBRARY_PATH="$$(pwd)/frida-gum" cargo build --workspace

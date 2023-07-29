@@ -47,6 +47,7 @@
               slirp4netns
               pkg-config
               protobuf
+              reuse
             ];
 
             LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";

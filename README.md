@@ -254,13 +254,41 @@ it and poke all the internals. Exciting!
 
 ### Build setup
 
-Clipper requires a nightly Rust compiler to build. I used 1.73.0-nightly
-(2023-07-09) but anything recent should work.
+Clipper requires a nightly Rust compiler to build. There is one set up in
+`rust-toolchain.toml` that will be automatically picked up if you use rustup.
 
 Since frida-gum is written in C it makes Clipper slightly annoying to build. I
 want to make this less annoying in the future, but I just haven't figured out
 how I plan to do so yet without losing Nix compatibility. You'll need to have a
-built frida-gum, for example by downloading one:
+built frida-gum, for example by downloading one in the setups below.
+
+#### Automatic setup (without nix)
+
+Install and set up [`direnv`][direnv] for your shell.
+
+[direnv]: https://direnv.net/
+
+Run `make setup`. This will set up a `.envrc` file for `direnv` to
+make anything run in the working directory have the right environment
+variables, as well as download frida-gum for you and `direnv allow` the
+`.envrc` file.
+
+#### Automatic setup (nix)
+
+Install and set up [`direnv`][direnv] for your shell, as well as
+[`nix-direnv`][nix-direnv] (optional but recommended).
+
+[nix-direnv]: https://github.com/nix-community/nix-direnv
+
+Run `make setup-nix`. This will set up a `.envrc` for `direnv` to use the Nix
+flake to provide a development environment automatically when you enter the
+directory.
+
+Alternatively you can manually run `nix develop` and do your work from that
+shell, however, this is not preferred, since it will not propagate to IDE tools
+like rust-analyzer.
+
+#### Manual setup
 
 ```
 $ curl -L -o frida-gum.tar.xz "https://github.com/frida/frida/releases/download/16.1.3/frida-gum-devkit-16.1.3-linux-x86_64.tar.xz"
@@ -273,25 +301,23 @@ $ export BINDGEN_EXTRA_CLANG_ARGS="-I$(pwd)/frida-gum"
 $ export LIBRARY_PATH="$(pwd)/frida-gum"
 ```
 
-(you can also run these commands via `make`)
+#### Building
 
-You can then run clipper via cargo with
+Without setting anything up, you can run `make` and it will build Clipper for
+you; however, this will not work with rust-analyzer since it does not set the
+environment variables above persistently.
+
+Once you have the environment variables set by any of the above methods, you
+can then run clipper via cargo with:
+
 ```sh
 $ cargo run -p clipper
 ```
 or directly with
 ```sh
+$ cargo build --workspace
 $ ./target/debug/clipper
 ```
-
-Alternatively, use `nix develop` and then it will pick it up for you
-automatically (although it will then possibly link to Nix stuff which may be
-inconvenient if you're not on NixOS due to `clipper_inject` being a
-`LD_PRELOAD` library; though this seems to be totally fine on my Arch box,
-surprisingly).
-
-Remember to run `cargo build --workspace` such that you have a
-`libclipper_inject.so` built before running `clipper`.
 
 ## Contributing
 
@@ -299,3 +325,21 @@ Contributions are accepted but please check with me by filing an issue
 prior to making new features or major changes. Clipper is a one-person
 volunteer project, and requests may be rejected for reasons of time or
 maintenance burden.
+
+### Copyright headers
+
+Clipper is compliant with the [REUSE specification][reuse-spec]: all files in
+the project have tracked copyright information. If you make substantive
+changes to a file, more than a line or two, you should add another line in the
+top comment block: `SPDX-FileCopyrightText: Your Name`.
+
+[reuse-spec]: https://reuse.software/spec/
+
+You can automate this process using the [`reuse`][reuse-cmdline] tool by
+running:
+
+[reuse-cmdline]: https://reuse.readthedocs.io/en/v1.0.0/
+
+```
+$ reuse annotate --copyright 'Your Name' --license MPL-2.0 thefile...
+```

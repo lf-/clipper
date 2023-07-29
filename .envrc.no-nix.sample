@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2023 Jade Lovelace
+#
+# SPDX-License-Identifier: MPL-2.0
+
+export BINDGEN_EXTRA_CLANG_ARGS="-I$(pwd)/frida-gum"
+export LIBRARY_PATH="$(pwd)/frida-gum"
