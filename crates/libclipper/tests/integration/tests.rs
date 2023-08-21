@@ -55,6 +55,11 @@ fn test_openssl_fixture_sslkeylogfile() {
 }
 mktest!(test_openssl_fixture_sslkeylogfile);
 
+fn test_dlopen_openssl_fixture_sslkeylogfile() {
+    run_checked_keylog_test(Fixture::OpenSSLDlopen)
+}
+mktest!(test_dlopen_openssl_fixture_sslkeylogfile);
+
 fn test_rustls_fixture_sslkeylogfile() {
     run_checked_keylog_test(Fixture::Rustls)
 }

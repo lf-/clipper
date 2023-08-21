@@ -11,6 +11,7 @@
 //! the interesting function in question is using dynamic binding, which
 //! cannot be assumed.
 
+mod dlopen;
 mod openssl;
 mod rustls;
 
@@ -19,7 +20,7 @@ use std::{
     fmt::Write,
     marker::FnPtr,
     mem, ptr,
-    sync::{LazyLock, OnceLock},
+    sync::{LazyLock, Mutex, OnceLock},
 };
 
 use frida_gum::{
@@ -30,9 +31,10 @@ use libc::c_void;
 use regex::Regex;
 
 pub static GUM: LazyLock<Gum> = LazyLock::new(|| unsafe { Gum::obtain() });
+pub static HOOK_SERVICE: OnceLock<Mutex<HookService<'static>>> = OnceLock::new();
 
 pub struct LibItem<TFun: FnPtr> {
-    module_name: &'static str,
+    module_name: Option<&'static str>,
     fun_name: &'static str,
     orig: OnceLock<TFun>,
 }
@@ -40,7 +42,14 @@ pub struct LibItem<TFun: FnPtr> {
 impl<TFun: FnPtr> LibItem<TFun> {
     pub const fn new(module_name: &'static str, fun_name: &'static str) -> LibItem<TFun> {
         LibItem {
-            module_name,
+            module_name: Some(module_name),
+            fun_name,
+            orig: OnceLock::new(),
+        }
+    }
+    pub const fn new_no_module(fun_name: &'static str) -> LibItem<TFun> {
+        LibItem {
+            module_name: None,
             fun_name,
             orig: OnceLock::new(),
         }
@@ -71,8 +80,13 @@ impl From<frida_gum::Error> for HookError {
 }
 
 pub struct HookService<'a> {
+    applied: HashSet<&'static str>,
     interceptor: Interceptor<'a>,
 }
+
+// SAFETY: honestly I don't know for sure if it's Send, but the internals
+// suggest it's Sync by itself. We will stick it in a mutex because whatever.
+unsafe impl<'a> Send for HookService<'a> {}
 
 unsafe fn transmute_same_size<T: Copy, U>(val: T) -> U {
     assert_eq!(mem::size_of::<T>(), mem::size_of::<U>());
@@ -83,6 +97,7 @@ unsafe fn transmute_same_size<T: Copy, U>(val: T) -> U {
 impl<'a> HookService<'a> {
     pub unsafe fn new() -> HookService<'static> {
         HookService {
+            applied: Default::default(),
             interceptor: Interceptor::obtain(&GUM),
         }
     }
@@ -93,7 +108,7 @@ impl<'a> HookService<'a> {
         &mut self,
         item: &LibItem<TFun>,
     ) -> Result<(), HookError> {
-        let export = Module::find_export_by_name(Some(item.module_name), item.fun_name)
+        let export = Module::find_export_by_name(item.module_name, item.fun_name)
             .ok_or(HookError::CouldNotFindExport)?;
 
         let export: TFun = transmute_same_size(export);
@@ -109,9 +124,10 @@ impl<'a> HookService<'a> {
         hook: &LibItem<TFun>,
         ptr: TFun,
     ) -> Result<(), HookError> {
-        let export = Module::find_export_by_name(Some(hook.module_name), hook.fun_name)
+        let export = Module::find_export_by_name(hook.module_name, hook.fun_name)
             .ok_or(HookError::CouldNotFindExport)?;
 
+        tracing::debug!("hook {:?} -> {:?}", export.0, ptr.addr());
         let orig = self.interceptor.replace(
             export,
             NativePointer(ptr.addr() as *mut c_void),
@@ -134,6 +150,42 @@ impl<'a> HookService<'a> {
         Ok(self
             .interceptor
             .replace(fun, redirect_to, NativePointer(ptr::null_mut()))?)
+    }
+
+    pub unsafe fn init_hooks(&mut self) {
+        // FIXME: list of disabled hooks
+
+        let mod_list = Module::enumerate_modules();
+        let libnames = mod_list
+            .iter()
+            .filter_map(|m| to_libname(&m.name).map(|v| v.to_string()))
+            .collect::<HashSet<String>>();
+        let main_symbols = Module::enumerate_symbols(&mod_list[0].name);
+
+        let applicability_context = ApplicabilityContext {
+            lib_names: &libnames,
+            modules: &mod_list,
+            main_symbols: &main_symbols,
+        };
+
+        for &hook in HOOKS {
+            let name = hook.name();
+            if self.applied.contains(name) {
+                tracing::debug!("already applied: {}", name);
+                continue;
+            }
+
+            tracing::debug!("checking if we should load hook {}", name);
+            if hook
+                .applicability()
+                .is_applicable(applicability_context.clone())
+            {
+                tracing::debug!("apply hook {}", name);
+                unsafe { hook.apply(self, applicability_context.clone()) };
+                self.applied.insert(name);
+            }
+        }
+        tracing::debug!("hooks done");
     }
 }
 
@@ -194,6 +246,14 @@ mod applicability {
             }
         }
     }
+
+    pub struct AlwaysApplicable {}
+
+    impl HookApplicability for AlwaysApplicable {
+        fn is_applicable(&self, _context: ApplicabilityContext<'_>) -> bool {
+            true
+        }
+    }
 }
 
 /// One library's hooks
@@ -217,32 +277,8 @@ fn to_libname(name: &str) -> Option<&str> {
     Some(inside.as_str())
 }
 
-static HOOKS: &[&dyn Hooks] = &[&openssl::OpenSSLHooks {}, &rustls::RustlsHooks {}];
-
-pub unsafe fn init_hooks(hook_service: &mut HookService) {
-    // FIXME: list of disabled hooks
-
-    let mod_list = Module::enumerate_modules();
-    let libnames = mod_list
-        .iter()
-        .filter_map(|m| to_libname(&m.name).map(|v| v.to_string()))
-        .collect::<HashSet<String>>();
-    let main_symbols = Module::enumerate_symbols(&mod_list[0].name);
-
-    let applicability_context = ApplicabilityContext {
-        lib_names: &libnames,
-        modules: &mod_list,
-        main_symbols: &main_symbols,
-    };
-
-    for &hook in HOOKS {
-        tracing::debug!("checking if we should load hook {}", hook.name());
-        if hook
-            .applicability()
-            .is_applicable(applicability_context.clone())
-        {
-            tracing::debug!("apply hook {}", hook.name());
-            unsafe { hook.apply(hook_service, applicability_context.clone()) };
-        }
-    }
-}
+static HOOKS: &[&dyn Hooks] = &[
+    &dlopen::DlopenHook,
+    &openssl::OpenSSLHooks {},
+    &rustls::RustlsHooks {},
+];

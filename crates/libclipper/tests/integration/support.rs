@@ -18,12 +18,15 @@ pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub const RUSTLS_FIXTURE: &'static str = env!("CARGO_BIN_FILE_RUSTLS_FIXTURE_rustls-fixture");
 pub const OPENSSL_FIXTURE: &'static str = env!("CARGO_BIN_FILE_OPENSSL_FIXTURE_openssl-fixture");
+pub const OPENSSL_DLOPEN_FIXTURE: &'static str =
+    env!("CARGO_BIN_FILE_DLOPEN_OPENSSL_FIXTURE_dlopen-openssl-fixture");
 
 pub const CLIPPER_INJECT: &'static str = env!("CARGO_CDYLIB_FILE_CLIPPER_INJECT_clipper_inject");
 
 pub enum Fixture {
     Rustls,
     OpenSSL,
+    OpenSSLDlopen,
 }
 
 impl From<Fixture> for tokio::process::Command {
@@ -31,6 +34,7 @@ impl From<Fixture> for tokio::process::Command {
         Self::new(match value {
             Fixture::Rustls => RUSTLS_FIXTURE,
             Fixture::OpenSSL => OPENSSL_FIXTURE,
+            Fixture::OpenSSLDlopen => OPENSSL_DLOPEN_FIXTURE,
         })
     }
 }

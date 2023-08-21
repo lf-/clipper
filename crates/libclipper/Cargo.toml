@@ -41,6 +41,7 @@ inventory = "0.3.11"
 libtest-mimic = "0.6.1"
 rustls-fixture = { path = "../../fixtures/rustls-fixture", artifact = "bin" }
 openssl-fixture = { path = "../../fixtures/openssl-fixture", artifact = "bin" }
+dlopen-openssl-fixture = { path = "../../fixtures/dlopen-openssl-fixture", artifact = "bin" }
 rcgen = "0.11.1"
 rustls = "0.21.5"
 tokio-rustls = "0.24.1"

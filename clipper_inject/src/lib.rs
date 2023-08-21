@@ -6,13 +6,13 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use std::{fs::OpenOptions, ops::Deref};
+use std::{fs::OpenOptions, ops::Deref, sync::Mutex};
 
 use frida_gum::Module;
 use log_target::LogTarget;
 
 use crate::{
-    hooks::{init_hooks, HookService, GUM},
+    hooks::{HookService, GUM, HOOK_SERVICE},
     log_target::{LogTargetRpc, LogTargetStream, LOG_TARGET},
 };
 use tracing_subscriber::{fmt, prelude::*};
@@ -59,8 +59,12 @@ unsafe fn init() {
 
         let _ = LOG_TARGET.set(pick_target());
 
-        let mut hook_service = HookService::new();
-        init_hooks(&mut hook_service);
+        let mut hook_service = HOOK_SERVICE
+            .get_or_init(|| Mutex::new(HookService::new()))
+            .lock()
+            .unwrap();
+
+        hook_service.init_hooks();
     }
 
     // Store-brand panic = abort, since we can't have the real one, since Cargo
