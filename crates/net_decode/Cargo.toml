@@ -22,7 +22,7 @@ hexdump = { version = "0.1.0", path = "../hexdump" }
 http = "0.2.9"
 httparse = "1.8.0"
 misc = { version = "0.1.0", path = "../misc" }
-pcap-parser = "0.14.0"
+pcap-parser = { workspace = true }
 pktparse = "0.7.1"
 rustls-intercept = { version = "0.21.1", path = "../../rustls-intercept/rustls" }
 thiserror = "1.0.40"

@@ -13,5 +13,5 @@ homepage = "https://github.com/lf-/clipper"
 repository = "https://github.com/lf-/clipper"
 edition = "2021"
 
-[patch.crates-io]
-pcap-parser = { git = "https://github.com/lf-/pcap-parser", branch = "jade/fix-options-correctly" }
+[workspace.dependencies]
+pcap-parser = "0.14.1"
