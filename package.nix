@@ -15,7 +15,6 @@ rustPlatform.buildRustPackage {
     lockFile = ./Cargo.lock;
     outputHashes = {
       "chromiumoxide_cdp-0.5.0" = "sha256-qJYD7N+LNgOX2UnJ1VukbKnhpEZIZcaoMkIWiXQ/nU4=";
-      "pcap-parser-0.14.0" = "sha256-Ur+gaNE7h6OEXaWrvPltMbBVkKJjm4paaPxSSGZHJ8g=";
     };
   };
 
