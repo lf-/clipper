@@ -179,7 +179,12 @@ pub fn run_keylog_test(fixture: Fixture) -> (Vec<u8>, Output) {
             .unwrap();
 
         if !output.status.success() {
-            println!("failed: \nstdout: {}\nstderr: {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            println!(
+                "{proc:?} failed with {}: \nstdout: {}\nstderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
             panic!("fixture execution failed");
         }
         cancel.cancel();

@@ -3,5 +3,5 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [toolchain]
-channel = "nightly-2025-10-07"
+channel = "nightly-2026-04-30"
 profile = "default"

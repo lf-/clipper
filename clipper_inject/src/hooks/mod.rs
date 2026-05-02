@@ -104,7 +104,7 @@ unsafe fn transmute_same_size<T: Copy, U>(val: T) -> U {
 
 unsafe fn transmute_ref_same_size<T: Copy, U: Copy>(val: &T) -> &U {
     assert_eq!(mem::size_of::<T>(), mem::size_of::<U>());
-    let val2: &U = std::mem::transmute(&val);
+    let val2: &U = std::mem::transmute(val);
     val2
 }
 
